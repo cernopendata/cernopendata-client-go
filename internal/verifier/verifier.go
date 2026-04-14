@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/clelange/cernopendata-client-go/internal/checksum"
+	"github.com/clelange/cernopendata-client-go/internal/downloader"
 	"github.com/clelange/cernopendata-client-go/internal/printer"
 )
 
@@ -77,6 +78,7 @@ func (v *Verifier) VerifyLocalFiles(directory string) (*VerificationStats, error
 func (v *Verifier) VerifyFiles(directory string, expectedFiles []any) (*VerificationStats, error) {
 	stats := &VerificationStats{}
 	stats.TotalFiles = len(expectedFiles)
+	downloader.AssignLocalPaths(expectedFiles)
 
 	for _, file := range expectedFiles {
 		fileMap, ok := file.(map[string]any)
@@ -85,12 +87,10 @@ func (v *Verifier) VerifyFiles(directory string, expectedFiles []any) (*Verifica
 			continue
 		}
 
-		uri, _ := fileMap["uri"].(string)
 		expectedSize, _ := fileMap["size"].(float64)
 		expectedChecksum, _ := fileMap["checksum"].(string)
-
-		fileName := filepath.Base(uri)
-		filePath := filepath.Join(directory, fileName)
+		displayPath := downloader.DisplayPath(fileMap)
+		filePath := downloader.DestinationPath(directory, fileMap)
 
 		result := VerificationResult{
 			Path:         filePath,
@@ -128,18 +128,18 @@ func (v *Verifier) VerifyFiles(directory string, expectedFiles []any) (*Verifica
 		if !result.SizeMatch {
 			stats.SizeFailed++
 			printer.DisplayMessage(printer.Error, fmt.Sprintf("Size mismatch: %s (expected: %d, actual: %d)",
-				fileName, result.ExpectedSize, result.ActualSize))
+				displayPath, result.ExpectedSize, result.ActualSize))
 		}
 
 		if !result.ChecksumMatch {
 			stats.ChecksumFailed++
 			printer.DisplayMessage(printer.Error, fmt.Sprintf("Checksum mismatch: %s (expected: %s, actual: %s)",
-				fileName, result.ExpectedSum, result.ActualSum))
+				displayPath, result.ExpectedSum, result.ActualSum))
 		}
 
 		if result.SizeMatch && result.ChecksumMatch {
 			stats.VerifiedFiles++
-			printer.DisplayMessage(printer.Info, fmt.Sprintf("Verified: %s", fileName))
+			printer.DisplayMessage(printer.Info, fmt.Sprintf("Verified: %s", displayPath))
 		}
 	}
 

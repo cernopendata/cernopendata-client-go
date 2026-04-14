@@ -45,7 +45,7 @@ func TestVerifyFiles(t *testing.T) {
 		map[string]any{
 			"uri":      "http://example.com/test.txt",
 			"size":     float64(len(content)),
-			"checksum": "adler32:08879620",
+			"checksum": "adler32:1f2904dc",
 		},
 	}
 
@@ -61,6 +61,48 @@ func TestVerifyFiles(t *testing.T) {
 
 	if stats.MissingFiles != 0 {
 		t.Errorf("Expected 0 missing files, got %d", stats.MissingFiles)
+	}
+}
+
+func TestVerifyFilesUsesAssignedLocalPath(t *testing.T) {
+	testDir := t.TempDir()
+	for _, dir := range []string{"0002", "0003"} {
+		if err := os.MkdirAll(filepath.Join(testDir, dir), 0750); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	content := []byte("test content")
+	for _, filePath := range []string{
+		filepath.Join(testDir, "0002", "AO2D.root"),
+		filepath.Join(testDir, "0003", "AO2D.root"),
+	} {
+		if err := os.WriteFile(filePath, content, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	verifier := NewVerifier()
+	expectedFiles := []any{
+		map[string]any{
+			"uri":      "http://example.com/run/0002/AO2D.root",
+			"size":     float64(len(content)),
+			"checksum": "adler32:1f2904dc",
+		},
+		map[string]any{
+			"uri":      "http://example.com/run/0003/AO2D.root",
+			"size":     float64(len(content)),
+			"checksum": "adler32:1f2904dc",
+		},
+	}
+
+	stats, err := verifier.VerifyFiles(testDir, expectedFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if stats.VerifiedFiles != 2 {
+		t.Errorf("Expected 2 verified files, got %d", stats.VerifiedFiles)
 	}
 }
 

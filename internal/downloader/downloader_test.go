@@ -488,6 +488,84 @@ func TestDownloadFiles(t *testing.T) {
 	}
 }
 
+func TestAssignLocalPathsUsesMinimalUniqueSuffix(t *testing.T) {
+	files := []any{
+		map[string]any{"uri": "http://opendata.cern.ch//eos/opendata/alice/2015/LHC15o/000245349/0002/AO2D.root"},
+		map[string]any{"uri": "http://opendata.cern.ch//eos/opendata/alice/2015/LHC15o/000245349/0003/AO2D.root"},
+		map[string]any{"uri": "http://opendata.cern.ch//eos/opendata/alice/2015/LHC15o/000245349/0004/AO2D.root"},
+	}
+
+	AssignLocalPaths(files)
+
+	expected := []string{"0002/AO2D.root", "0003/AO2D.root", "0004/AO2D.root"}
+	for i, file := range files {
+		fileMap := file.(map[string]any)
+		localPath, _ := fileMap["local_path"].(string)
+		if localPath != expected[i] {
+			t.Errorf("local_path[%d] = %q, want %q", i, localPath, expected[i])
+		}
+	}
+}
+
+func TestAssignLocalPathsExtendsSuffixUntilUnique(t *testing.T) {
+	files := []any{
+		map[string]any{"uri": "http://example.com/store/runA/0001/AO2D.root"},
+		map[string]any{"uri": "http://example.com/store/runB/0001/AO2D.root"},
+	}
+
+	AssignLocalPaths(files)
+
+	expected := []string{"runA/0001/AO2D.root", "runB/0001/AO2D.root"}
+	for i, file := range files {
+		fileMap := file.(map[string]any)
+		localPath, _ := fileMap["local_path"].(string)
+		if localPath != expected[i] {
+			t.Errorf("local_path[%d] = %q, want %q", i, localPath, expected[i])
+		}
+	}
+}
+
+func TestDownloadFilesPreservesUniqueSubdirectoriesForDuplicateBasenames(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("file content"))
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(handler))
+	defer server.Close()
+
+	files := []any{
+		map[string]any{
+			"uri":      server.URL + "/dataset/0002/AO2D.root",
+			"size":     float64(12),
+			"checksum": "adler32:12345678",
+		},
+		map[string]any{
+			"uri":      server.URL + "/dataset/0003/AO2D.root",
+			"size":     float64(12),
+			"checksum": "adler32:87654321",
+		},
+	}
+
+	tmpDir := t.TempDir()
+	d := &Downloader{
+		client:     server.Client(),
+		retryLimit: 1,
+		retrySleep: 0,
+	}
+
+	stats := d.DownloadFiles(files, tmpDir, 1, 0, false, false, false)
+	if stats.DownloadedFiles != 2 {
+		t.Fatalf("DownloadedFiles = %d, want 2", stats.DownloadedFiles)
+	}
+
+	for _, relPath := range []string{"0002/AO2D.root", "0003/AO2D.root"} {
+		if _, err := os.Stat(filepath.Join(tmpDir, relPath)); err != nil {
+			t.Errorf("expected downloaded file at %s: %v", relPath, err)
+		}
+	}
+}
+
 func TestDownloadFilesDryRun(t *testing.T) {
 	downloadCount := 0
 	handler := func(w http.ResponseWriter, r *http.Request) {
