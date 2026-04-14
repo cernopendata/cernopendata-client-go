@@ -288,6 +288,8 @@ cernopendata-client download-files --recid 8886 --file-availability online
 cernopendata-client download-files --recid 8886 --file-availability all
 ```
 
+**Duplicate File Names Note**: If a record contains multiple files with the same basename, the client preserves the shortest unique trailing directory structure under the output directory to avoid overwriting files. For example, files may be stored as `data/0002/AO2D.root` and `data/0003/AO2D.root`.
+
 **File Availability Note**: By default, the client will warn you about files stored on tape and skip them automatically. You'll see:
 
 - A warning message with a link to request file staging at the CERN Open Data portal
