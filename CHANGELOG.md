@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/cernopendata/cernopendata-client-go/compare/v0.9.0...v0.9.1) (2026-04-14)
+
+
+### Bug Fixes
+
+* **download:** preserve unique paths for duplicate basenames ([a37c42d](https://github.com/cernopendata/cernopendata-client-go/commit/a37c42d3f5e3070d0e8319976e66f5d87168e2c4))
+
 ## [0.9.0](https://github.com/clelange/cernopendata-client-go/compare/v0.8.1...v0.9.0) (2026-02-15)
 
 
