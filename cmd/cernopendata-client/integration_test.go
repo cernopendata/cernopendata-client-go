@@ -5,6 +5,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"hash/adler32"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -612,6 +616,10 @@ func contains(s, substr string) bool {
 	return strings.Contains(s, substr)
 }
 
+func adlerChecksum(content []byte) string {
+	return fmt.Sprintf("adler32:%08x", adler32.Checksum(content))
+}
+
 func TestIntegrationDownloadFilesFromRecid(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -633,6 +641,97 @@ func TestIntegrationDownloadFilesFromRecid(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(tmpDir, "0d0714743f0204ed3c0144941e6ce248.configFile.py")); os.IsNotExist(err) {
 		t.Error("Expected file to be downloaded")
+	}
+}
+
+func TestIntegrationDownloadFilesDuplicateBasenamesWithLocalServer(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	const recid = 11537
+
+	fileA := []byte("content from 0002")
+	fileB := []byte("content from 0003")
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case fmt.Sprintf("/api/records/%d", recid):
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": fmt.Sprintf("%d", recid),
+				"metadata": map[string]any{
+					"recid": recid,
+					"_file_indices": []any{
+						map[string]any{
+							"key":  "index-1",
+							"size": len(fileA) + len(fileB),
+							"files": []any{
+								map[string]any{
+									"uri":      server.URL + "/files/0002/AO2D.root",
+									"size":     len(fileA),
+									"checksum": adlerChecksum(fileA),
+								},
+								map[string]any{
+									"uri":      server.URL + "/files/0003/AO2D.root",
+									"size":     len(fileB),
+									"checksum": adlerChecksum(fileB),
+								},
+							},
+						},
+					},
+				},
+			})
+		case "/files/0002/AO2D.root":
+			_, _ = w.Write(fileA)
+		case "/files/0003/AO2D.root":
+			_, _ = w.Write(fileB)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	tmpDir := t.TempDir()
+
+	// #nosec G204
+	cmd := exec.Command(
+		getBinaryPath(),
+		"download-files",
+		"--recid", fmt.Sprintf("%d", recid),
+		"--server", server.URL,
+		"--output-dir", tmpDir,
+		"--verify",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("download-files against local server failed: %v\nOutput: %s", err, string(output))
+	}
+
+	for relPath, want := range map[string]string{
+		"0002/AO2D.root": string(fileA),
+		"0003/AO2D.root": string(fileB),
+	} {
+		// #nosec G304 -- relPath is constrained to fixed test cases in this table
+		got, readErr := os.ReadFile(filepath.Join(tmpDir, relPath))
+		if readErr != nil {
+			t.Fatalf("failed to read downloaded file %s: %v", relPath, readErr)
+		}
+		if string(got) != want {
+			t.Errorf("downloaded content for %s = %q, want %q", relPath, string(got), want)
+		}
+	}
+
+	outputStr := string(output)
+	if !contains(outputStr, "Verified: 0002/AO2D.root") {
+		t.Errorf("expected verification output for 0002/AO2D.root, got:\n%s", outputStr)
+	}
+	if !contains(outputStr, "Verified: 0003/AO2D.root") {
+		t.Errorf("expected verification output for 0003/AO2D.root, got:\n%s", outputStr)
+	}
+	if !contains(outputStr, "Success") {
+		t.Errorf("expected success output, got:\n%s", outputStr)
 	}
 }
 
