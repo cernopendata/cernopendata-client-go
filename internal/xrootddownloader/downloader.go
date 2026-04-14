@@ -14,6 +14,7 @@ import (
 	"go-hep.org/x/hep/xrootd/xrdio"
 
 	"github.com/clelange/cernopendata-client-go/internal/config"
+	"github.com/clelange/cernopendata-client-go/internal/downloader"
 	"github.com/clelange/cernopendata-client-go/internal/printer"
 	"github.com/clelange/cernopendata-client-go/internal/utils"
 )
@@ -278,6 +279,7 @@ func (d *Downloader) DownloadFiles(ctx context.Context, files []any, baseDir str
 	d.verbose = verbose
 	d.dryRun = dryRun
 	d.showProgress = showProgress
+	downloader.AssignLocalPaths(files)
 
 	stats := DownloadStats{}
 	stats.TotalFiles = len(files)
@@ -298,19 +300,20 @@ func (d *Downloader) DownloadFiles(ctx context.Context, files []any, baseDir str
 		uri, _ := fileMap["uri"].(string)
 		size, _ := fileMap["size"].(float64)
 		checksum, _ := fileMap["checksum"].(string)
+		displayPath := downloader.DisplayPath(fileMap)
 
 		stats.TotalBytes += int64(size)
 
-		printer.DisplayMessage(printer.Info, fmt.Sprintf("Downloading file %d/%d: %s", i+1, stats.TotalFiles, filepath.Base(uri)))
+		printer.DisplayMessage(printer.Info, fmt.Sprintf("Downloading file %d/%d: %s", i+1, stats.TotalFiles, displayPath))
 
 		if dryRun {
-			printer.DisplayMessage(printer.Note, fmt.Sprintf("Would download: %s (size: %d, checksum: %s)", uri, int64(size), checksum))
+			printer.DisplayMessage(printer.Note, fmt.Sprintf("Would download: %s -> %s (size: %d, checksum: %s)", uri, displayPath, int64(size), checksum))
 			stats.DownloadedFiles++
 			stats.DownloadedBytes += int64(size)
 			continue
 		}
 
-		destPath := filepath.Join(baseDir, filepath.Base(uri))
+		destPath := downloader.DestinationPath(baseDir, fileMap)
 
 		if fi, err := os.Stat(destPath); err == nil {
 			if fi.Size() >= int64(size) {
