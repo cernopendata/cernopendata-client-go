@@ -4,7 +4,7 @@ go 1.26
 
 require (
 	github.com/spf13/cobra v1.10.2
-	go-hep.org/x/hep v0.39.0
+	go-hep.org/x/hep v0.40.0
 )
 
 require (
@@ -16,6 +16,6 @@ require (
 	github.com/jcmturner/gokrb5/v8 v8.4.4 // indirect
 	github.com/jcmturner/rpc/v2 v2.0.3 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
-	golang.org/x/crypto v0.48.0 // indirect
-	golang.org/x/net v0.50.0 // indirect
+	golang.org/x/crypto v0.51.0 // indirect
+	golang.org/x/net v0.54.0 // indirect
 )
