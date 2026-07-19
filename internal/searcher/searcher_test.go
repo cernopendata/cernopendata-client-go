@@ -1,7 +1,10 @@
 package searcher
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -657,7 +660,7 @@ func TestSearchRecords(t *testing.T) {
 			defer server.Close()
 
 			client := NewClient(server.URL)
-			resp, err := client.SearchRecords(tt.q, tt.facets, tt.page, tt.size, tt.sort)
+			resp, err := client.SearchRecordsContext(context.Background(), tt.q, tt.facets, tt.page, tt.size, tt.sort)
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("SearchRecords() error = %v, wantErr %v", err, tt.wantErr)
@@ -744,7 +747,7 @@ func TestGetFacets(t *testing.T) {
 			defer server.Close()
 
 			client := NewClient(server.URL)
-			facets, err := client.GetFacets()
+			facets, err := client.GetFacetsContext(context.Background())
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetFacets() error = %v, wantErr %v", err, tt.wantErr)
@@ -795,7 +798,7 @@ func TestSearchRecordsWithAggregations(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL)
-	resp, err := client.SearchRecords("test", nil, 1, 10, "")
+	resp, err := client.SearchRecordsContext(context.Background(), "test", nil, 1, 10, "")
 
 	if err != nil {
 		t.Fatalf("SearchRecords() error = %v", err)
@@ -886,7 +889,7 @@ func TestSearchAllRecords(t *testing.T) {
 			defer server.Close()
 
 			client := NewClient(server.URL)
-			resp, err := client.SearchAllRecords("test", nil, "")
+			resp, err := client.SearchAllRecordsContext(context.Background(), "test", nil, "")
 
 			if err != nil {
 				t.Fatalf("SearchAllRecords() error = %v", err)
@@ -932,10 +935,147 @@ func TestSearchAllRecordsError(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL)
-	_, err := client.SearchAllRecords("test", nil, "")
+	_, err := client.SearchAllRecordsContext(context.Background(), "test", nil, "")
 
 	if err == nil {
-		t.Error("SearchAllRecords() expected error on second page, got nil")
+		t.Fatal("SearchAllRecords() expected error on second page, got nil")
+	}
+	if !strings.Contains(err.Error(), "status 500") {
+		t.Fatalf("SearchAllRecords() error = %v, want HTTP status diagnostic", err)
+	}
+}
+
+func TestSearchAllRecordsRejectsPaginationWithoutProgress(t *testing.T) {
+	tests := []struct {
+		name          string
+		secondPage    []SearchHit
+		wantErrorText string
+	}{
+		{
+			name:          "empty page",
+			secondPage:    []SearchHit{},
+			wantErrorText: "received an empty page after 1 of 2 records",
+		},
+		{
+			name:          "repeated page",
+			secondPage:    []SearchHit{{ID: "1"}},
+			wantErrorText: "received no new records after 1 of 2 records",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			requests := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				page := r.URL.Query().Get("page")
+				hits := []SearchHit{{ID: "1"}}
+				if page == "2" {
+					hits = tt.secondPage
+				}
+				_ = json.NewEncoder(w).Encode(SearchResponse{
+					Hits: SearchHits{Total: 2, Hits: hits},
+				})
+			}))
+			defer server.Close()
+
+			client := NewClient(server.URL)
+			_, err := client.SearchAllRecordsContext(context.Background(), "test", nil, "")
+			if err == nil {
+				t.Fatal("SearchAllRecordsContext() error = nil, want pagination progress error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErrorText) {
+				t.Fatalf("SearchAllRecordsContext() error = %q, want text %q", err, tt.wantErrorText)
+			}
+			if requests != 2 {
+				t.Fatalf("SearchAllRecordsContext() requests = %d, want 2", requests)
+			}
+		})
+	}
+}
+
+func TestSearchAllRecordsPreservesOrderWhileDeduplicating(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pages := map[string][]SearchHit{
+			"1": {
+				{ID: "2", Metadata: map[string]any{"title": "second"}},
+				{ID: "1", Metadata: map[string]any{"title": "first"}},
+			},
+			"2": {
+				{ID: "1", Metadata: map[string]any{"title": "duplicate"}},
+				{ID: "3", Metadata: map[string]any{"title": "third"}},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(SearchResponse{
+			Hits: SearchHits{Total: 3, Hits: pages[r.URL.Query().Get("page")]},
+		})
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	resp, err := client.SearchAllRecordsContext(context.Background(), "test", nil, "")
+	if err != nil {
+		t.Fatalf("SearchAllRecordsContext() error = %v", err)
+	}
+
+	gotIDs := make([]string, 0, len(resp.Hits.Hits))
+	for _, hit := range resp.Hits.Hits {
+		gotIDs = append(gotIDs, hit.ID)
+	}
+	if got, want := fmt.Sprint(gotIDs), "[2 1 3]"; got != want {
+		t.Fatalf("SearchAllRecordsContext() IDs = %s, want %s", got, want)
+	}
+}
+
+func TestSearchRequestsRespectCancellation(t *testing.T) {
+	tests := []struct {
+		name string
+		call func(context.Context, *Client) error
+	}{
+		{
+			name: "record search",
+			call: func(ctx context.Context, client *Client) error {
+				_, err := client.SearchRecordsContext(ctx, "test", nil, 1, 10, "")
+				return err
+			},
+		},
+		{
+			name: "fetch all",
+			call: func(ctx context.Context, client *Client) error {
+				_, err := client.SearchAllRecordsContext(ctx, "test", nil, "")
+				return err
+			},
+		},
+		{
+			name: "facets",
+			call: func(ctx context.Context, client *Client) error {
+				_, err := client.GetFacetsContext(ctx)
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handlerCalled := make(chan struct{}, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				handlerCalled <- struct{}{}
+			}))
+			defer server.Close()
+
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+
+			err := tt.call(ctx, NewClient(server.URL))
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("request error = %v, want context.Canceled", err)
+			}
+			select {
+			case <-handlerCalled:
+				t.Fatal("canceled request reached the HTTP handler")
+			default:
+			}
+		})
 	}
 }
 

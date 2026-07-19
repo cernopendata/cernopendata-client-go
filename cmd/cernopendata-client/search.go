@@ -58,7 +58,7 @@ Examples:
 
 		// Handle --list-facets
 		if listFacets {
-			facets, err := client.GetFacets()
+			facets, err := client.GetFacetsContext(cmd.Context())
 			if err != nil {
 				printer.DisplayMessage(printer.Error, fmt.Sprintf("Failed to fetch facets: %v", err))
 				os.Exit(1)
@@ -125,9 +125,9 @@ Examples:
 
 		// Handle --size -1 for fetching all results
 		if size == -1 {
-			searchResp, err = client.SearchAllRecords(queryPattern, facetsMap, sort)
+			searchResp, err = client.SearchAllRecordsContext(cmd.Context(), queryPattern, facetsMap, sort)
 		} else {
-			searchResp, err = client.SearchRecords(queryPattern, facetsMap, page, size, sort)
+			searchResp, err = client.SearchRecordsContext(cmd.Context(), queryPattern, facetsMap, page, size, sort)
 		}
 
 		if err != nil {
