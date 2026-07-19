@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.10.0](https://github.com/cernopendata/cernopendata-client-go/compare/v0.9.1...v0.10.0) (2026-07-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* use github.com/cernopendata/cernopendata-client-go for Go installs and imports.
+
+### Bug Fixes
+
+* guard search pagination progress ([2c5f9a1](https://github.com/cernopendata/cernopendata-client-go/commit/2c5f9a114b274776512d369704f022f981acb620))
+* include maintenance changes in release notes ([#57](https://github.com/cernopendata/cernopendata-client-go/issues/57)) ([1d7f895](https://github.com/cernopendata/cernopendata-client-go/commit/1d7f8959192ed1ae62002ef2eb825ccd600501e9))
+* propagate versions into release artifacts ([0d76f58](https://github.com/cernopendata/cernopendata-client-go/commit/0d76f58a7ca1074a75e99e1af9da56202f56ea45))
+* require checksums for binary installation ([0af214d](https://github.com/cernopendata/cernopendata-client-go/commit/0af214d7afcac1c544fc2f140f9a40c7681421fd))
+
+
+### Code Refactoring
+
+* migrate module path to cernopendata ([7d2505b](https://github.com/cernopendata/cernopendata-client-go/commit/7d2505bd593095d1008e6444fd3d1122ac34429f))
+* return command errors through cobra ([#55](https://github.com/cernopendata/cernopendata-client-go/issues/55)) ([4248f5c](https://github.com/cernopendata/cernopendata-client-go/commit/4248f5c4cd9fdc3be2f76ad08b82007345402d47))
+* use typed file metadata and fix XRootD retries ([c1fbef4](https://github.com/cernopendata/cernopendata-client-go/commit/c1fbef4b220fb850b34426c2b0a6c9f2a135a2a5))
+
+
+### Tests
+
+* make live integration outcomes explicit ([#56](https://github.com/cernopendata/cernopendata-client-go/issues/56)) ([68222ea](https://github.com/cernopendata/cernopendata-client-go/commit/68222ea3549813127763860a2d4d38e26229de54))
+
 ## [0.9.1](https://github.com/cernopendata/cernopendata-client-go/compare/v0.9.0...v0.9.1) (2026-04-14)
 
 
