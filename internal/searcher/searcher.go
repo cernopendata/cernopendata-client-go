@@ -1,6 +1,7 @@
 package searcher
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -437,6 +438,12 @@ func GetRecid(server, doi string, title string, recid int) (int, error) {
 // page and size control pagination, sort controls ordering.
 // Returns records with metadata included.
 func (c *Client) SearchRecords(q string, facets map[string]string, page, size int, sort string) (*SearchResponse, error) {
+	return c.SearchRecordsContext(context.Background(), q, facets, page, size, sort)
+}
+
+// SearchRecordsContext searches for records using a query string and optional facets.
+// The request is canceled when ctx is done.
+func (c *Client) SearchRecordsContext(ctx context.Context, q string, facets map[string]string, page, size int, sort string) (*SearchResponse, error) {
 	params := url.Values{}
 	if q != "" {
 		params.Set("q", q)
@@ -453,7 +460,12 @@ func (c *Client) SearchRecords(q string, facets map[string]string, page, size in
 
 	searchURL := fmt.Sprintf("%s/api/records/?%s", c.server, params.Encode())
 
-	resp, err := c.client.Get(searchURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create search request: %w", err)
+	}
+
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search records: %w", err)
 	}
@@ -474,13 +486,19 @@ func (c *Client) SearchRecords(q string, facets map[string]string, page, size in
 // SearchAllRecords fetches all matching records by paginating through results
 // in batches of 50. Returns a combined SearchResponse with all hits.
 func (c *Client) SearchAllRecords(q string, facets map[string]string, sort string) (*SearchResponse, error) {
+	return c.SearchAllRecordsContext(context.Background(), q, facets, sort)
+}
+
+// SearchAllRecordsContext fetches all matching records while honoring ctx.
+func (c *Client) SearchAllRecordsContext(ctx context.Context, q string, facets map[string]string, sort string) (*SearchResponse, error) {
 	const batchSize = 50
 	var allHits []SearchHit
+	seenIDs := make(map[string]struct{})
 	page := 1
 	totalRecords := 0
 
 	for {
-		resp, err := c.SearchRecords(q, facets, page, batchSize, sort)
+		resp, err := c.SearchRecordsContext(ctx, q, facets, page, batchSize, sort)
 		if err != nil {
 			return nil, err
 		}
@@ -489,7 +507,33 @@ func (c *Client) SearchAllRecords(q string, facets map[string]string, sort strin
 			totalRecords = resp.Hits.Total
 		}
 
-		allHits = append(allHits, resp.Hits.Hits...)
+		if totalRecords == 0 {
+			break
+		}
+
+		if len(resp.Hits.Hits) == 0 {
+			return nil, fmt.Errorf(
+				"search pagination made no progress on page %d: received an empty page after %d of %d records",
+				page, len(allHits), totalRecords,
+			)
+		}
+
+		newHits := 0
+		for _, hit := range resp.Hits.Hits {
+			if _, seen := seenIDs[hit.ID]; seen {
+				continue
+			}
+			seenIDs[hit.ID] = struct{}{}
+			allHits = append(allHits, hit)
+			newHits++
+		}
+
+		if newHits == 0 {
+			return nil, fmt.Errorf(
+				"search pagination made no progress on page %d: received no new records after %d of %d records",
+				page, len(allHits), totalRecords,
+			)
+		}
 
 		// Check if we've fetched all records
 		if len(allHits) >= totalRecords {
@@ -510,8 +554,13 @@ func (c *Client) SearchAllRecords(q string, facets map[string]string, sort strin
 // GetFacets fetches available facets (aggregations) from the API.
 // This makes a minimal search request to get the aggregation data.
 func (c *Client) GetFacets() (map[string]Aggregation, error) {
+	return c.GetFacetsContext(context.Background())
+}
+
+// GetFacetsContext fetches available facets while honoring ctx.
+func (c *Client) GetFacetsContext(ctx context.Context) (map[string]Aggregation, error) {
 	// Make a minimal search to get aggregations
-	resp, err := c.SearchRecords("", nil, 1, 1, "")
+	resp, err := c.SearchRecordsContext(ctx, "", nil, 1, 1, "")
 	if err != nil {
 		return nil, err
 	}
