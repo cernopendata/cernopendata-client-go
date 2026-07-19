@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clelange/cernopendata-client-go/internal/config"
+	"github.com/cernopendata/cernopendata-client-go/internal/config"
 )
 
 type RecordResponse struct {

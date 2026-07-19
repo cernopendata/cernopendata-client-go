@@ -13,10 +13,10 @@ import (
 	"go-hep.org/x/hep/xrootd/xrdfs"
 	"go-hep.org/x/hep/xrootd/xrdio"
 
-	"github.com/clelange/cernopendata-client-go/internal/config"
-	"github.com/clelange/cernopendata-client-go/internal/downloader"
-	"github.com/clelange/cernopendata-client-go/internal/printer"
-	"github.com/clelange/cernopendata-client-go/internal/utils"
+	"github.com/cernopendata/cernopendata-client-go/internal/config"
+	"github.com/cernopendata/cernopendata-client-go/internal/downloader"
+	"github.com/cernopendata/cernopendata-client-go/internal/printer"
+	"github.com/cernopendata/cernopendata-client-go/internal/utils"
 )
 
 type DownloadStats struct {

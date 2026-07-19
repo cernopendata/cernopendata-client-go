@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/clelange/cernopendata-client-go/internal/config"
-	"github.com/clelange/cernopendata-client-go/internal/lister"
-	"github.com/clelange/cernopendata-client-go/internal/printer"
+	"github.com/cernopendata/cernopendata-client-go/internal/config"
+	"github.com/cernopendata/cernopendata-client-go/internal/lister"
+	"github.com/cernopendata/cernopendata-client-go/internal/printer"
 )
 
 // printEntries formats and prints directory entries based on verbose mode

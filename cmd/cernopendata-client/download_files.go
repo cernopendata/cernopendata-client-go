@@ -7,13 +7,13 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/clelange/cernopendata-client-go/internal/config"
-	"github.com/clelange/cernopendata-client-go/internal/downloader"
-	"github.com/clelange/cernopendata-client-go/internal/printer"
-	"github.com/clelange/cernopendata-client-go/internal/searcher"
-	"github.com/clelange/cernopendata-client-go/internal/utils"
-	"github.com/clelange/cernopendata-client-go/internal/verifier"
-	"github.com/clelange/cernopendata-client-go/internal/xrootddownloader"
+	"github.com/cernopendata/cernopendata-client-go/internal/config"
+	"github.com/cernopendata/cernopendata-client-go/internal/downloader"
+	"github.com/cernopendata/cernopendata-client-go/internal/printer"
+	"github.com/cernopendata/cernopendata-client-go/internal/searcher"
+	"github.com/cernopendata/cernopendata-client-go/internal/utils"
+	"github.com/cernopendata/cernopendata-client-go/internal/verifier"
+	"github.com/cernopendata/cernopendata-client-go/internal/xrootddownloader"
 )
 
 var downloadFilesCmd = &cobra.Command{

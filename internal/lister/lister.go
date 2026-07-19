@@ -9,7 +9,7 @@ import (
 	"go-hep.org/x/hep/xrootd"
 	"go-hep.org/x/hep/xrootd/xrdio"
 
-	"github.com/clelange/cernopendata-client-go/internal/config"
+	"github.com/cernopendata/cernopendata-client-go/internal/config"
 )
 
 type FileInfo struct {
