@@ -18,10 +18,5 @@ jobs:
         id: release
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-          release-type: go
-          package-name: cernopendata-client
-          changelog-path: CHANGELOG.md
-          include-v-in-tag: true
-          labels: release,automated
-          bump-minor-pre-major: true
-          initial-version: 0.1.0
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
