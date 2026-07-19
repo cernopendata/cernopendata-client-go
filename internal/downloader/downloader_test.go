@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/cernopendata/cernopendata-client-go/internal/filemetadata"
 	"github.com/cernopendata/cernopendata-client-go/internal/utils"
 )
 
@@ -32,10 +33,10 @@ func TestNewDownloader(t *testing.T) {
 }
 
 func TestFilterFiles(t *testing.T) {
-	files := []any{
-		map[string]any{"uri": "/path/file1.txt"},
-		map[string]any{"uri": "/path/file2.csv"},
-		map[string]any{"uri": "/path/file3.log"},
+	files := []filemetadata.File{
+		{URI: "/path/file1.txt"},
+		{URI: "/path/file2.csv"},
+		{URI: "/path/file3.log"},
 	}
 
 	tests := []struct {
@@ -59,7 +60,7 @@ func TestFilterFiles(t *testing.T) {
 }
 
 func TestFilterFilesByRange(t *testing.T) {
-	files := []any{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+	files := make([]filemetadata.File, 10)
 
 	tests := []struct {
 		name     string
@@ -132,10 +133,10 @@ func TestFileDownloadResult(t *testing.T) {
 }
 
 func TestFilterFilesByMultipleNames(t *testing.T) {
-	fileLocations := []any{
-		map[string]any{"uri": "http://example.com/a.txt"},
-		map[string]any{"uri": "http://example.com/b.txt"},
-		map[string]any{"uri": "http://example.com/c.py"},
+	fileLocations := []filemetadata.File{
+		{URI: "http://example.com/a.txt"},
+		{URI: "http://example.com/b.txt"},
+		{URI: "http://example.com/c.py"},
 	}
 
 	result := FilterFilesByMultipleNames(fileLocations, []string{"a.txt", "c.py"})
@@ -149,27 +150,17 @@ func TestFilterFilesByMultipleNames(t *testing.T) {
 	}
 
 	for _, file := range result {
-		fileMap, ok := file.(map[string]any)
-		if !ok {
-			t.Errorf("File is not a map")
-			continue
-		}
-		uri, ok := fileMap["uri"].(string)
-		if !ok {
-			t.Errorf("File URI is not a string")
-			continue
-		}
-		if !expectedFiles[uri] {
-			t.Errorf("Unexpected file: %s", uri)
+		if !expectedFiles[file.URI] {
+			t.Errorf("Unexpected file: %s", file.URI)
 		}
 	}
 }
 
 func TestFilterFilesByRegex(t *testing.T) {
-	fileLocations := []any{
-		map[string]any{"uri": "http://example.com/a.py"},
-		map[string]any{"uri": "http://example.com/b.txt"},
-		map[string]any{"uri": "http://example.com/c.py"},
+	fileLocations := []filemetadata.File{
+		{URI: "http://example.com/a.py"},
+		{URI: "http://example.com/b.txt"},
+		{URI: "http://example.com/c.py"},
 	}
 
 	result := FilterFilesByRegex(fileLocations, `\.py$`)
@@ -178,26 +169,16 @@ func TestFilterFilesByRegex(t *testing.T) {
 	}
 
 	for _, file := range result {
-		fileMap, ok := file.(map[string]any)
-		if !ok {
-			t.Errorf("File is not a map")
-			continue
-		}
-		uri, ok := fileMap["uri"].(string)
-		if !ok {
-			t.Errorf("File URI is not a string")
-			continue
-		}
-		if uri != "http://example.com/a.py" && uri != "http://example.com/c.py" {
-			t.Errorf("Unexpected file: %s", uri)
+		if file.URI != "http://example.com/a.py" && file.URI != "http://example.com/c.py" {
+			t.Errorf("Unexpected file: %s", file.URI)
 		}
 	}
 }
 
 func TestFilterFilesByRegexNoMatch(t *testing.T) {
-	fileLocations := []any{
-		map[string]any{"uri": "http://example.com/a.txt"},
-		map[string]any{"uri": "http://example.com/b.txt"},
+	fileLocations := []filemetadata.File{
+		{URI: "http://example.com/a.txt"},
+		{URI: "http://example.com/b.txt"},
 	}
 
 	result := FilterFilesByRegex(fileLocations, `\.py$`)
@@ -206,11 +187,31 @@ func TestFilterFilesByRegexNoMatch(t *testing.T) {
 	}
 }
 
+func TestFilteringPreservesTypedMetadata(t *testing.T) {
+	files := []filemetadata.File{
+		{
+			URI:          "root://example/data.root",
+			Size:         1234,
+			Checksum:     "adler32:12345678",
+			Availability: "online",
+		},
+		{URI: "root://example/notes.txt", Size: 12},
+	}
+
+	filtered := FilterFilesByRegex(files, `\.root$`)
+	if len(filtered) != 1 {
+		t.Fatalf("filtered files = %d, want 1", len(filtered))
+	}
+	if filtered[0] != files[0] {
+		t.Fatalf("filtered metadata = %+v, want %+v", filtered[0], files[0])
+	}
+}
+
 func TestFilterFilesByRangeSingleFile(t *testing.T) {
-	fileLocations := []any{
-		map[string]any{"uri": "http://example.com/file1.txt"},
-		map[string]any{"uri": "http://example.com/file2.txt"},
-		map[string]any{"uri": "http://example.com/file3.txt"},
+	fileLocations := []filemetadata.File{
+		{URI: "http://example.com/file1.txt"},
+		{URI: "http://example.com/file2.txt"},
+		{URI: "http://example.com/file3.txt"},
 	}
 
 	ranges, _ := utils.ParseRanges([]string{"2-2"})
@@ -220,20 +221,16 @@ func TestFilterFilesByRangeSingleFile(t *testing.T) {
 	}
 
 	if len(result) > 0 {
-		fileMap, ok := result[0].(map[string]any)
-		if ok {
-			uri, _ := fileMap["uri"].(string)
-			if uri != "http://example.com/file2.txt" {
-				t.Errorf("Expected file2.txt, got %s", uri)
-			}
+		if result[0].URI != "http://example.com/file2.txt" {
+			t.Errorf("Expected file2.txt, got %s", result[0].URI)
 		}
 	}
 }
 
 func TestFilterFilesByRangeWithFilteredFiles(t *testing.T) {
-	filteredFiles := []any{
-		map[string]any{"uri": "http://example.com/file1.txt"},
-		map[string]any{"uri": "http://example.com/file3.txt"},
+	filteredFiles := []filemetadata.File{
+		{URI: "http://example.com/file1.txt"},
+		{URI: "http://example.com/file3.txt"},
 	}
 
 	ranges, _ := utils.ParseRanges([]string{"1-2"})
@@ -248,16 +245,8 @@ func TestFilterFilesByRangeWithFilteredFiles(t *testing.T) {
 	}
 
 	for _, file := range result {
-		fileMap, ok := file.(map[string]any)
-		if !ok {
-			continue
-		}
-		uri, ok := fileMap["uri"].(string)
-		if !ok {
-			continue
-		}
-		if !expectedFiles[uri] {
-			t.Errorf("Unexpected file: %s", uri)
+		if !expectedFiles[file.URI] {
+			t.Errorf("Unexpected file: %s", file.URI)
 		}
 	}
 }
@@ -452,17 +441,9 @@ func TestDownloadFiles(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(handler))
 	defer server.Close()
 
-	files := []any{
-		map[string]any{
-			"uri":      server.URL + "/file1.txt",
-			"size":     float64(12),
-			"checksum": "adler32:12345678",
-		},
-		map[string]any{
-			"uri":      server.URL + "/file2.txt",
-			"size":     float64(12),
-			"checksum": "adler32:87654321",
-		},
+	files := []filemetadata.File{
+		{URI: server.URL + "/file1.txt", Size: 12, Checksum: "adler32:12345678"},
+		{URI: server.URL + "/file2.txt", Size: 12, Checksum: "adler32:87654321"},
 	}
 
 	tmpDir := t.TempDir()
@@ -489,38 +470,34 @@ func TestDownloadFiles(t *testing.T) {
 }
 
 func TestAssignLocalPathsUsesMinimalUniqueSuffix(t *testing.T) {
-	files := []any{
-		map[string]any{"uri": "http://opendata.cern.ch//eos/opendata/alice/2015/LHC15o/000245349/0002/AO2D.root"},
-		map[string]any{"uri": "http://opendata.cern.ch//eos/opendata/alice/2015/LHC15o/000245349/0003/AO2D.root"},
-		map[string]any{"uri": "http://opendata.cern.ch//eos/opendata/alice/2015/LHC15o/000245349/0004/AO2D.root"},
+	files := []filemetadata.File{
+		{URI: "http://opendata.cern.ch//eos/opendata/alice/2015/LHC15o/000245349/0002/AO2D.root"},
+		{URI: "http://opendata.cern.ch//eos/opendata/alice/2015/LHC15o/000245349/0003/AO2D.root"},
+		{URI: "http://opendata.cern.ch//eos/opendata/alice/2015/LHC15o/000245349/0004/AO2D.root"},
 	}
 
 	AssignLocalPaths(files)
 
 	expected := []string{"0002/AO2D.root", "0003/AO2D.root", "0004/AO2D.root"}
 	for i, file := range files {
-		fileMap := file.(map[string]any)
-		localPath, _ := fileMap["local_path"].(string)
-		if localPath != expected[i] {
-			t.Errorf("local_path[%d] = %q, want %q", i, localPath, expected[i])
+		if file.LocalPath != expected[i] {
+			t.Errorf("local_path[%d] = %q, want %q", i, file.LocalPath, expected[i])
 		}
 	}
 }
 
 func TestAssignLocalPathsExtendsSuffixUntilUnique(t *testing.T) {
-	files := []any{
-		map[string]any{"uri": "http://example.com/store/runA/0001/AO2D.root"},
-		map[string]any{"uri": "http://example.com/store/runB/0001/AO2D.root"},
+	files := []filemetadata.File{
+		{URI: "http://example.com/store/runA/0001/AO2D.root"},
+		{URI: "http://example.com/store/runB/0001/AO2D.root"},
 	}
 
 	AssignLocalPaths(files)
 
 	expected := []string{"runA/0001/AO2D.root", "runB/0001/AO2D.root"}
 	for i, file := range files {
-		fileMap := file.(map[string]any)
-		localPath, _ := fileMap["local_path"].(string)
-		if localPath != expected[i] {
-			t.Errorf("local_path[%d] = %q, want %q", i, localPath, expected[i])
+		if file.LocalPath != expected[i] {
+			t.Errorf("local_path[%d] = %q, want %q", i, file.LocalPath, expected[i])
 		}
 	}
 }
@@ -534,17 +511,9 @@ func TestDownloadFilesPreservesUniqueSubdirectoriesForDuplicateBasenames(t *test
 	server := httptest.NewServer(http.HandlerFunc(handler))
 	defer server.Close()
 
-	files := []any{
-		map[string]any{
-			"uri":      server.URL + "/dataset/0002/AO2D.root",
-			"size":     float64(12),
-			"checksum": "adler32:12345678",
-		},
-		map[string]any{
-			"uri":      server.URL + "/dataset/0003/AO2D.root",
-			"size":     float64(12),
-			"checksum": "adler32:87654321",
-		},
+	files := []filemetadata.File{
+		{URI: server.URL + "/dataset/0002/AO2D.root", Size: 12, Checksum: "adler32:12345678"},
+		{URI: server.URL + "/dataset/0003/AO2D.root", Size: 12, Checksum: "adler32:87654321"},
 	}
 
 	tmpDir := t.TempDir()
@@ -577,12 +546,8 @@ func TestDownloadFilesDryRun(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(handler))
 	defer server.Close()
 
-	files := []any{
-		map[string]any{
-			"uri":      server.URL + "/file1.txt",
-			"size":     float64(100),
-			"checksum": "adler32:12345678",
-		},
+	files := []filemetadata.File{
+		{URI: server.URL + "/file1.txt", Size: 100, Checksum: "adler32:12345678"},
 	}
 
 	tmpDir := t.TempDir()
@@ -621,12 +586,8 @@ func TestDownloadFilesSkipExisting(t *testing.T) {
 		t.Fatalf("Failed to create existing file: %v", err)
 	}
 
-	files := []any{
-		map[string]any{
-			"uri":      server.URL + "/file1.txt",
-			"size":     float64(8),
-			"checksum": "adler32:12345678",
-		},
+	files := []filemetadata.File{
+		{URI: server.URL + "/file1.txt", Size: 8, Checksum: "adler32:12345678"},
 	}
 
 	d := &Downloader{
@@ -652,22 +613,14 @@ func TestDownloadFilesSkipExisting(t *testing.T) {
 	}
 }
 
-func TestDownloadFilesInvalidEntry(t *testing.T) {
-	files := []any{
-		"not a map", // invalid entry
-		map[string]any{
-			"uri":  "http://example.com/file.txt",
-			"size": float64(100),
-		},
-	}
-
+func TestDownloadFilesEmpty(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	d := NewDownloader()
-	stats := d.DownloadFiles(files, tmpDir, 1, 0, false, true, false) // dry-run to avoid network
+	stats := d.DownloadFiles(nil, tmpDir, 1, 0, false, true, false)
 
-	if stats.SkippedFiles != 1 {
-		t.Errorf("SkippedFiles = %d, want 1 (for invalid entry)", stats.SkippedFiles)
+	if stats.TotalFiles != 0 {
+		t.Errorf("TotalFiles = %d, want 0", stats.TotalFiles)
 	}
 }
 
@@ -699,12 +652,8 @@ func TestDownloadFilesResumePartial(t *testing.T) {
 		t.Fatalf("Failed to create partial file: %v", err)
 	}
 
-	files := []any{
-		map[string]any{
-			"uri":      server.URL + "/file1.txt",
-			"size":     float64(15), // "existing" (8) + "resumed" (7) = 15
-			"checksum": "adler32:12345678",
-		},
+	files := []filemetadata.File{
+		{URI: server.URL + "/file1.txt", Size: 15, Checksum: "adler32:12345678"},
 	}
 
 	d := &Downloader{

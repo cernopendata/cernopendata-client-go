@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cernopendata/cernopendata-client-go/internal/config"
+	"github.com/cernopendata/cernopendata-client-go/internal/filemetadata"
 )
 
 type RecordResponse struct {
@@ -17,12 +18,9 @@ type RecordResponse struct {
 	ID       string         `json:"id"`
 }
 
-type FileInfo struct {
-	URI          string `json:"uri"`
-	Size         int64  `json:"size"`
-	Checksum     string `json:"checksum"`
-	Availability string `json:"availability,omitempty"` // "online" or "on demand"
-}
+// FileInfo is kept as an alias for compatibility within the search package.
+// File metadata itself has one shared representation across the application.
+type FileInfo = filemetadata.File
 
 type SearchResponse struct {
 	Hits         SearchHits             `json:"hits"`

@@ -8,6 +8,7 @@ import (
 
 	"github.com/cernopendata/cernopendata-client-go/internal/checksum"
 	"github.com/cernopendata/cernopendata-client-go/internal/downloader"
+	"github.com/cernopendata/cernopendata-client-go/internal/filemetadata"
 	"github.com/cernopendata/cernopendata-client-go/internal/printer"
 )
 
@@ -75,27 +76,19 @@ func (v *Verifier) VerifyLocalFiles(directory string) (*VerificationStats, error
 	return stats, nil
 }
 
-func (v *Verifier) VerifyFiles(directory string, expectedFiles []any) (*VerificationStats, error) {
+func (v *Verifier) VerifyFiles(directory string, expectedFiles []filemetadata.File) (*VerificationStats, error) {
 	stats := &VerificationStats{}
 	stats.TotalFiles = len(expectedFiles)
 	downloader.AssignLocalPaths(expectedFiles)
 
 	for _, file := range expectedFiles {
-		fileMap, ok := file.(map[string]any)
-		if !ok {
-			stats.MissingFiles++
-			continue
-		}
-
-		expectedSize, _ := fileMap["size"].(float64)
-		expectedChecksum, _ := fileMap["checksum"].(string)
-		displayPath := downloader.DisplayPath(fileMap)
-		filePath := downloader.DestinationPath(directory, fileMap)
+		displayPath := downloader.DisplayPath(file)
+		filePath := downloader.DestinationPath(directory, file)
 
 		result := VerificationResult{
 			Path:         filePath,
-			ExpectedSize: int64(expectedSize),
-			ExpectedSum:  expectedChecksum,
+			ExpectedSize: file.Size,
+			ExpectedSum:  file.Checksum,
 		}
 
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
