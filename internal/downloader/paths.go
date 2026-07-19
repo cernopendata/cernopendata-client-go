@@ -6,10 +6,12 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/cernopendata/cernopendata-client-go/internal/filemetadata"
 )
 
 type filePathInfo struct {
-	fileMap  map[string]any
+	file     *filemetadata.File
 	baseName string
 	segments []string
 }
@@ -17,34 +19,29 @@ type filePathInfo struct {
 // AssignLocalPaths computes a collision-free relative destination for each file.
 // When multiple URIs share the same basename, it preserves the shortest unique
 // trailing directory suffix needed to distinguish them.
-func AssignLocalPaths(files []any) {
+func AssignLocalPaths(files []filemetadata.File) {
 	groups := make(map[string][]filePathInfo)
 
-	for _, file := range files {
-		fileMap, ok := file.(map[string]any)
-		if !ok {
+	for i := range files {
+		file := &files[i]
+		if sanitizeLocalPath(file.LocalPath) != "" {
+			file.LocalPath = sanitizeLocalPath(file.LocalPath)
 			continue
 		}
 
-		if localPath, ok := fileMap["local_path"].(string); ok && sanitizeLocalPath(localPath) != "" {
-			fileMap["local_path"] = sanitizeLocalPath(localPath)
-			continue
-		}
-
-		uri, _ := fileMap["uri"].(string)
-		segments := uriPathSegments(uri)
+		segments := uriPathSegments(file.URI)
 		if len(segments) == 0 {
-			baseName := filepath.Base(uri)
+			baseName := filepath.Base(file.URI)
 			if baseName == "." || baseName == string(filepath.Separator) || baseName == "" {
 				baseName = "downloaded-file"
 			}
-			fileMap["local_path"] = baseName
+			file.LocalPath = baseName
 			continue
 		}
 
 		baseName := segments[len(segments)-1]
 		groups[baseName] = append(groups[baseName], filePathInfo{
-			fileMap:  fileMap,
+			file:     file,
 			baseName: baseName,
 			segments: segments,
 		})
@@ -52,7 +49,7 @@ func AssignLocalPaths(files []any) {
 
 	for _, group := range groups {
 		if len(group) == 1 {
-			group[0].fileMap["local_path"] = group[0].baseName
+			group[0].file.LocalPath = group[0].baseName
 			continue
 		}
 
@@ -60,31 +57,25 @@ func AssignLocalPaths(files []any) {
 	}
 }
 
-func DestinationPath(baseDir string, fileMap map[string]any) string {
-	return filepath.Join(baseDir, getLocalPath(fileMap))
+func DestinationPath(baseDir string, file filemetadata.File) string {
+	return filepath.Join(baseDir, getLocalPath(file))
 }
 
-func DisplayPath(fileMap map[string]any) string {
-	localPath := getLocalPath(fileMap)
+func DisplayPath(file filemetadata.File) string {
+	localPath := getLocalPath(file)
 	if localPath != "" {
 		return filepath.ToSlash(localPath)
 	}
 
-	uri, _ := fileMap["uri"].(string)
-	return filepath.Base(uri)
+	return filepath.Base(file.URI)
 }
 
-func getLocalPath(fileMap map[string]any) string {
-	if fileMap == nil {
-		return ""
+func getLocalPath(file filemetadata.File) string {
+	if file.LocalPath != "" {
+		return sanitizeLocalPath(file.LocalPath)
 	}
 
-	if localPath, ok := fileMap["local_path"].(string); ok {
-		return sanitizeLocalPath(localPath)
-	}
-
-	uri, _ := fileMap["uri"].(string)
-	segments := uriPathSegments(uri)
+	segments := uriPathSegments(file.URI)
 	if len(segments) == 0 {
 		return ""
 	}
@@ -145,7 +136,7 @@ func assignGroupLocalPaths(group []filePathInfo) {
 		}
 
 		seen[uniqueCandidate] = struct{}{}
-		group[i].fileMap["local_path"] = uniqueCandidate
+		group[i].file.LocalPath = uniqueCandidate
 	}
 }
 

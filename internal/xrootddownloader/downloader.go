@@ -15,28 +15,20 @@ import (
 
 	"github.com/cernopendata/cernopendata-client-go/internal/config"
 	"github.com/cernopendata/cernopendata-client-go/internal/downloader"
+	"github.com/cernopendata/cernopendata-client-go/internal/filemetadata"
 	"github.com/cernopendata/cernopendata-client-go/internal/printer"
 	"github.com/cernopendata/cernopendata-client-go/internal/utils"
 )
 
-type DownloadStats struct {
-	TotalFiles      int
-	TotalBytes      int64
-	DownloadedFiles int
-	DownloadedBytes int64
-	FailedFiles     int
-	SkippedFiles    int
+type DownloadStats = downloader.DownloadStats
+type FileDownloadResult = downloader.FileDownloadResult
+
+type remoteFile interface {
+	ReadAtContext(context.Context, []byte, int64) (int, error)
+	Close(context.Context) error
 }
 
-type FileDownloadResult struct {
-	URL      string
-	Path     string
-	Size     int64
-	Checksum string
-	Success  bool
-	Error    error
-	Retries  int
-}
+type openFileFunc func(context.Context, string) (remoteFile, error)
 
 type Downloader struct {
 	client       *xrootd.Client
@@ -47,6 +39,7 @@ type Downloader struct {
 	showProgress bool
 	address      string
 	username     string
+	openFile     openFileFunc
 }
 
 func NewDownloader() *Downloader {
@@ -115,7 +108,7 @@ func (d *Downloader) DownloadFile(ctx context.Context, url, destPath string, res
 		return nil, fmt.Errorf("failed to parse XRootD URL: %w", err)
 	}
 
-	if d.client == nil {
+	if d.openFile == nil && d.client == nil {
 		client, err := xrootd.NewClient(ctx, parsedURL.Addr, d.username)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create XRootD client: %w", err)
@@ -124,7 +117,13 @@ func (d *Downloader) DownloadFile(ctx context.Context, url, destPath string, res
 		d.address = parsedURL.Addr
 	}
 
-	fs := d.client.FS()
+	openFile := d.openFile
+	if openFile == nil {
+		fs := d.client.FS()
+		openFile = func(ctx context.Context, path string) (remoteFile, error) {
+			return fs.Open(ctx, path, xrdfs.OpenModeOwnerRead, xrdfs.OpenOptionsOpenRead|xrdfs.OpenOptionsSequentiallyIO)
+		}
+	}
 
 	var lastErr error
 	var attempt int
@@ -132,8 +131,23 @@ func (d *Downloader) DownloadFile(ctx context.Context, url, destPath string, res
 	for attempt = 0; attempt < d.retryLimit; attempt++ {
 		if attempt > 0 {
 			printer.DisplayMessage(printer.Note, fmt.Sprintf("Retry attempt %d/%d after %ds...", attempt+1, d.retryLimit, d.retrySleep))
-			time.Sleep(time.Duration(d.retrySleep) * time.Second)
+			timer := time.NewTimer(time.Duration(d.retrySleep) * time.Second)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return &FileDownloadResult{
+					URL:     url,
+					Path:    destPath,
+					Success: false,
+					Error:   ctx.Err(),
+					Retries: attempt - 1,
+				}, ctx.Err()
+			case <-timer.C:
+			}
 		}
+		// Errors belong to one attempt only. A successful retry must not be
+		// poisoned by a failure from an earlier attempt.
+		lastErr = nil
 
 		// Strict resume: re-check file size on each attempt and resume from the true end.
 		var existingSize int64
@@ -153,7 +167,7 @@ func (d *Downloader) DownloadFile(ctx context.Context, url, destPath string, res
 			offset = existingSize
 		}
 
-		file, err := fs.Open(ctx, parsedURL.Path, xrdfs.OpenModeOwnerRead, xrdfs.OpenOptionsOpenRead|xrdfs.OpenOptionsSequentiallyIO)
+		file, err := openFile(ctx, parsedURL.Path)
 		if err != nil {
 			lastErr = err
 			printer.DisplayMessage(printer.Note, fmt.Sprintf("Failed to open file: %v", err))
@@ -205,7 +219,7 @@ func (d *Downloader) DownloadFile(ctx context.Context, url, destPath string, res
 			default:
 			}
 
-			n, err := file.ReadAt(buf, totalBytes)
+			n, err := file.ReadAtContext(ctx, buf, totalBytes)
 			if n > 0 {
 				if _, err := localFile.Write(buf[:n]); err != nil {
 					lastErr = err
@@ -273,7 +287,7 @@ func (d *Downloader) DownloadFile(ctx context.Context, url, destPath string, res
 	}, lastErr
 }
 
-func (d *Downloader) DownloadFiles(ctx context.Context, files []any, baseDir string, retry int, retrySleep int, verbose bool, dryRun bool, showProgress bool) DownloadStats {
+func (d *Downloader) DownloadFiles(ctx context.Context, files []filemetadata.File, baseDir string, retry int, retrySleep int, verbose bool, dryRun bool, showProgress bool) DownloadStats {
 	d.retryLimit = retry
 	d.retrySleep = retrySleep
 	d.verbose = verbose
@@ -290,42 +304,32 @@ func (d *Downloader) DownloadFiles(ctx context.Context, files []any, baseDir str
 	}
 
 	for i, file := range files {
-		fileMap, ok := file.(map[string]any)
-		if !ok {
-			printer.DisplayMessage(printer.Note, fmt.Sprintf("Skipping invalid file entry %d", i))
-			stats.SkippedFiles++
-			continue
-		}
+		displayPath := downloader.DisplayPath(file)
 
-		uri, _ := fileMap["uri"].(string)
-		size, _ := fileMap["size"].(float64)
-		checksum, _ := fileMap["checksum"].(string)
-		displayPath := downloader.DisplayPath(fileMap)
-
-		stats.TotalBytes += int64(size)
+		stats.TotalBytes += file.Size
 
 		printer.DisplayMessage(printer.Info, fmt.Sprintf("Downloading file %d/%d: %s", i+1, stats.TotalFiles, displayPath))
 
 		if dryRun {
-			printer.DisplayMessage(printer.Note, fmt.Sprintf("Would download: %s -> %s (size: %d, checksum: %s)", uri, displayPath, int64(size), checksum))
+			printer.DisplayMessage(printer.Note, fmt.Sprintf("Would download: %s -> %s (size: %d, checksum: %s)", file.URI, displayPath, file.Size, file.Checksum))
 			stats.DownloadedFiles++
-			stats.DownloadedBytes += int64(size)
+			stats.DownloadedBytes += file.Size
 			continue
 		}
 
-		destPath := downloader.DestinationPath(baseDir, fileMap)
+		destPath := downloader.DestinationPath(baseDir, file)
 
 		if fi, err := os.Stat(destPath); err == nil {
-			if fi.Size() >= int64(size) {
+			if fi.Size() >= file.Size {
 				printer.DisplayMessage(printer.Note, fmt.Sprintf("File already exists: %s", destPath))
 				stats.SkippedFiles++
 				continue
 			}
 		}
 
-		result, err := d.DownloadFile(ctx, uri, destPath, true, int64(size))
+		result, err := d.DownloadFile(ctx, file.URI, destPath, true, file.Size)
 		if err != nil {
-			printer.DisplayMessage(printer.Error, fmt.Sprintf("Failed to download %s: %v", uri, err))
+			printer.DisplayMessage(printer.Error, fmt.Sprintf("Failed to download %s: %v", file.URI, err))
 			stats.FailedFiles++
 		} else if result.Success {
 			stats.DownloadedFiles++

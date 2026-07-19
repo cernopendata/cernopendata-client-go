@@ -2,8 +2,39 @@ package xrootddownloader
 
 import (
 	"context"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/cernopendata/cernopendata-client-go/internal/filemetadata"
 )
+
+type fakeRemoteFile struct {
+	data []byte
+	err  error
+}
+
+func (f *fakeRemoteFile) ReadAtContext(ctx context.Context, p []byte, offset int64) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if f.err != nil {
+		return 0, f.err
+	}
+	if offset >= int64(len(f.data)) {
+		return 0, io.EOF
+	}
+	n := copy(p, f.data[offset:])
+	if offset+int64(n) >= int64(len(f.data)) {
+		return n, io.EOF
+	}
+	return n, nil
+}
+
+func (f *fakeRemoteFile) Close(context.Context) error { return nil }
 
 func TestNewDownloader(t *testing.T) {
 	d := NewDownloader()
@@ -102,17 +133,9 @@ func TestDownloadFilesDryRun(t *testing.T) {
 	d.dryRun = true
 	d.verbose = true
 
-	files := []any{
-		map[string]any{
-			"uri":      "root://test/file1.dat",
-			"size":     float64(1000),
-			"checksum": "abc123",
-		},
-		map[string]any{
-			"uri":      "root://test/file2.dat",
-			"size":     float64(2000),
-			"checksum": "def456",
-		},
+	files := []filemetadata.File{
+		{URI: "root://test/file1.dat", Size: 1000, Checksum: "abc123"},
+		{URI: "root://test/file2.dat", Size: 2000, Checksum: "def456"},
 	}
 
 	ctx := context.Background()
@@ -139,27 +162,92 @@ func TestDownloadFilesDryRun(t *testing.T) {
 	}
 }
 
-func TestDownloadFilesInvalidEntry(t *testing.T) {
+func TestDownloadFilesEmpty(t *testing.T) {
 	d := NewDownloader()
 
-	files := []any{
-		map[string]any{
-			"uri":      "root://test/file1.dat",
-			"size":     float64(1000),
-			"checksum": "abc123",
-		},
-		"not a map",
-		map[string]any{
-			"uri":      "root://test/file2.dat",
-			"size":     float64(2000),
-			"checksum": "def456",
-		},
+	ctx := context.Background()
+	stats := d.DownloadFiles(ctx, nil, t.TempDir(), 3, 2, true, true, false)
+
+	if stats.TotalFiles != 0 {
+		t.Errorf("Expected TotalFiles 0, got %d", stats.TotalFiles)
+	}
+}
+
+func TestDownloadFileRetrySuccessResetsAttemptError(t *testing.T) {
+	temporaryError := errors.New("temporary open failure")
+	openCalls := 0
+	d := NewDownloader()
+	d.retryLimit = 2
+	d.retrySleep = 0
+	d.openFile = func(context.Context, string) (remoteFile, error) {
+		openCalls++
+		if openCalls == 1 {
+			return nil, temporaryError
+		}
+		return &fakeRemoteFile{data: []byte("payload")}, nil
 	}
 
-	ctx := context.Background()
-	stats := d.DownloadFiles(ctx, files, "/tmp/test", 3, 2, true, true, false)
+	destPath := filepath.Join(t.TempDir(), "file.dat")
+	result, err := d.DownloadFile(context.Background(), "root://test/file.dat", destPath, false, 7)
+	if err != nil {
+		t.Fatalf("DownloadFile returned error after successful retry: %v", err)
+	}
+	if !result.Success || result.Retries != 1 {
+		t.Fatalf("result = %+v, want successful result with one retry", result)
+	}
+	data, err := os.ReadFile(destPath) // #nosec G304 -- destination is inside t.TempDir
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "payload" {
+		t.Fatalf("downloaded data = %q, want payload", data)
+	}
+}
 
-	if stats.SkippedFiles != 1 {
-		t.Errorf("Expected SkippedFiles 1, got %d", stats.SkippedFiles)
+func TestDownloadFileRetryExhaustion(t *testing.T) {
+	wantErr := errors.New("remote unavailable")
+	openCalls := 0
+	d := NewDownloader()
+	d.retryLimit = 3
+	d.retrySleep = 0
+	d.openFile = func(context.Context, string) (remoteFile, error) {
+		openCalls++
+		return nil, wantErr
+	}
+
+	result, err := d.DownloadFile(context.Background(), "root://test/file.dat", filepath.Join(t.TempDir(), "file.dat"), false, 7)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("DownloadFile error = %v, want %v", err, wantErr)
+	}
+	if openCalls != 3 {
+		t.Fatalf("open calls = %d, want 3", openCalls)
+	}
+	if result.Success || result.Retries != 2 || !errors.Is(result.Error, wantErr) {
+		t.Fatalf("result = %+v, want exhausted failure", result)
+	}
+}
+
+func TestDownloadFileCancellationInterruptsRetryWait(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	d := NewDownloader()
+	d.retryLimit = 3
+	d.retrySleep = 30
+	d.openFile = func(context.Context, string) (remoteFile, error) {
+		cancel()
+		return nil, errors.New("temporary failure")
+	}
+
+	start := time.Now()
+	result, err := d.DownloadFile(ctx, "root://test/file.dat", filepath.Join(t.TempDir(), "file.dat"), false, 7)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("DownloadFile error = %v, want context canceled", err)
+	}
+	if time.Since(start) > time.Second {
+		t.Fatalf("cancellation did not interrupt retry wait")
+	}
+	if result.Success || !errors.Is(result.Error, context.Canceled) {
+		t.Fatalf("result = %+v, want canceled failure", result)
 	}
 }

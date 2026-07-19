@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cernopendata/cernopendata-client-go/internal/config"
+	"github.com/cernopendata/cernopendata-client-go/internal/filemetadata"
 	"github.com/cernopendata/cernopendata-client-go/internal/printer"
 	"github.com/cernopendata/cernopendata-client-go/internal/progress"
 )
@@ -174,7 +175,7 @@ func (d *Downloader) DownloadFile(url, destPath string, resume bool, expectedSiz
 	}, lastErr
 }
 
-func (d *Downloader) DownloadFiles(files []any, baseDir string, retry int, retrySleep int, verbose bool, dryRun bool, showProgress bool) DownloadStats {
+func (d *Downloader) DownloadFiles(files []filemetadata.File, baseDir string, retry int, retrySleep int, verbose bool, dryRun bool, showProgress bool) DownloadStats {
 	d.retryLimit = retry
 	d.retrySleep = retrySleep
 	d.verbose = verbose
@@ -191,42 +192,32 @@ func (d *Downloader) DownloadFiles(files []any, baseDir string, retry int, retry
 	}
 
 	for i, file := range files {
-		fileMap, ok := file.(map[string]any)
-		if !ok {
-			printer.DisplayMessage(printer.Note, fmt.Sprintf("Skipping invalid file entry %d", i))
-			stats.SkippedFiles++
-			continue
-		}
+		displayPath := DisplayPath(file)
 
-		uri, _ := fileMap["uri"].(string)
-		size, _ := fileMap["size"].(float64)
-		checksum, _ := fileMap["checksum"].(string)
-		displayPath := DisplayPath(fileMap)
-
-		stats.TotalBytes += int64(size)
+		stats.TotalBytes += file.Size
 
 		printer.DisplayMessage(printer.Info, fmt.Sprintf("Downloading file %d/%d: %s", i+1, stats.TotalFiles, displayPath))
 
 		if dryRun {
-			printer.DisplayMessage(printer.Note, fmt.Sprintf("Would download: %s -> %s (size: %d, checksum: %s)", uri, displayPath, int64(size), checksum))
+			printer.DisplayMessage(printer.Note, fmt.Sprintf("Would download: %s -> %s (size: %d, checksum: %s)", file.URI, displayPath, file.Size, file.Checksum))
 			stats.DownloadedFiles++
-			stats.DownloadedBytes += int64(size)
+			stats.DownloadedBytes += file.Size
 			continue
 		}
 
-		destPath := DestinationPath(baseDir, fileMap)
+		destPath := DestinationPath(baseDir, file)
 
 		if fi, err := os.Stat(destPath); err == nil {
-			if fi.Size() >= int64(size) {
+			if fi.Size() >= file.Size {
 				printer.DisplayMessage(printer.Note, fmt.Sprintf("File already exists: %s", destPath))
 				stats.SkippedFiles++
 				continue
 			}
 		}
 
-		result, err := d.DownloadFile(uri, destPath, true, int64(size))
+		result, err := d.DownloadFile(file.URI, destPath, true, file.Size)
 		if err != nil {
-			printer.DisplayMessage(printer.Error, fmt.Sprintf("Failed to download %s: %v", uri, err))
+			printer.DisplayMessage(printer.Error, fmt.Sprintf("Failed to download %s: %v", file.URI, err))
 			stats.FailedFiles++
 		} else if result.Success {
 			stats.DownloadedFiles++
@@ -244,24 +235,18 @@ func (d *Downloader) DownloadFiles(files []any, baseDir string, retry int, retry
 	return stats
 }
 
-func ParseFileList(files []any) []any {
+func ParseFileList(files []filemetadata.File) []filemetadata.File {
 	return files
 }
 
-func FilterFiles(files []any, filter string) []any {
+func FilterFiles(files []filemetadata.File, filter string) []filemetadata.File {
 	if filter == "" {
 		return files
 	}
 
-	var result []any
+	var result []filemetadata.File
 	for _, file := range files {
-		fileMap, ok := file.(map[string]any)
-		if !ok {
-			continue
-		}
-
-		uri, _ := fileMap["uri"].(string)
-		matched, err := filepath.Match(filter, filepath.Base(uri))
+		matched, err := filepath.Match(filter, filepath.Base(file.URI))
 		if err != nil {
 			continue
 		}
@@ -273,7 +258,7 @@ func FilterFiles(files []any, filter string) []any {
 	return result
 }
 
-func FilterFilesByRange(files []any, start, end int) []any {
+func FilterFilesByRange(files []filemetadata.File, start, end int) []filemetadata.File {
 	if start < 0 || end < 0 {
 		return files
 	}
@@ -281,7 +266,7 @@ func FilterFilesByRange(files []any, start, end int) []any {
 	total := len(files)
 
 	if start >= total {
-		return []any{}
+		return []filemetadata.File{}
 	}
 
 	if end > total {
@@ -289,18 +274,18 @@ func FilterFilesByRange(files []any, start, end int) []any {
 	}
 
 	if start > end {
-		return []any{}
+		return []filemetadata.File{}
 	}
 
 	return files[start:end]
 }
 
-func FilterFilesByMultipleRanges(files []any, ranges [][2]int) []any {
+func FilterFilesByMultipleRanges(files []filemetadata.File, ranges [][2]int) []filemetadata.File {
 	if len(ranges) == 0 {
 		return files
 	}
 
-	var result []any
+	var result []filemetadata.File
 	for _, r := range ranges {
 		start := r[0]
 		end := r[1]
@@ -316,12 +301,12 @@ func FilterFilesByMultipleRanges(files []any, ranges [][2]int) []any {
 	return result
 }
 
-func FilterFilesByMultipleNames(files []any, filters []string) []any {
+func FilterFilesByMultipleNames(files []filemetadata.File, filters []string) []filemetadata.File {
 	if len(filters) == 0 {
 		return files
 	}
 
-	var result []any
+	var result []filemetadata.File
 	for _, filter := range filters {
 		filtered := FilterFiles(files, filter)
 		result = append(result, filtered...)
@@ -330,7 +315,7 @@ func FilterFilesByMultipleNames(files []any, filters []string) []any {
 	return result
 }
 
-func FilterFilesByRegex(files []any, pattern string) []any {
+func FilterFilesByRegex(files []filemetadata.File, pattern string) []filemetadata.File {
 	if pattern == "" {
 		return files
 	}
@@ -340,15 +325,9 @@ func FilterFilesByRegex(files []any, pattern string) []any {
 		return files
 	}
 
-	var result []any
+	var result []filemetadata.File
 	for _, file := range files {
-		fileMap, ok := file.(map[string]any)
-		if !ok {
-			continue
-		}
-
-		uri, _ := fileMap["uri"].(string)
-		if re.MatchString(filepath.Base(uri)) {
+		if re.MatchString(filepath.Base(file.URI)) {
 			result = append(result, file)
 		}
 	}

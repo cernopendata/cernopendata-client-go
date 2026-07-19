@@ -138,14 +138,7 @@ Examples:
 
 			tapeFilesSkipped = totalFiles - len(files)
 		}
-		var fileList []any
-		for _, file := range files {
-			fileList = append(fileList, map[string]any{
-				"uri":      file.URI,
-				"size":     float64(file.Size),
-				"checksum": file.Checksum,
-			})
-		}
+		fileList := files
 
 		if filterName != "" {
 			nameFilters := strings.Split(filterName, ",")
@@ -184,15 +177,7 @@ Examples:
 			if progressFlag, _ := cmd.Flags().GetBool("progress"); progressFlag {
 				showProgress = true
 			}
-			xrdStats := xrdDownloader.DownloadFiles(cmd.Context(), fileList, outputDir, retryLimit, retrySleep, verbose, dryRun, showProgress)
-			stats = downloader.DownloadStats{
-				TotalFiles:      xrdStats.TotalFiles,
-				TotalBytes:      xrdStats.TotalBytes,
-				DownloadedFiles: xrdStats.DownloadedFiles,
-				DownloadedBytes: xrdStats.DownloadedBytes,
-				FailedFiles:     xrdStats.FailedFiles,
-				SkippedFiles:    xrdStats.SkippedFiles,
-			}
+			stats = xrdDownloader.DownloadFiles(cmd.Context(), fileList, outputDir, retryLimit, retrySleep, verbose, dryRun, showProgress)
 		} else {
 			httpDownloader := downloader.NewDownloader()
 			// Enable progress when --progress or --verbose flags are set

@@ -868,7 +868,7 @@ func TestSearchAllRecords(t *testing.T) {
 				hits := make([]any, hitsThisPage)
 				for i := range hits {
 					hits[i] = map[string]any{
-						"id":       string(rune('0' + startIdx + i)),
+						"id":       string(rune('0' + startIdx + i)), // #nosec G115 -- bounded test fixture IDs
 						"metadata": map[string]any{"title": "Record"},
 					}
 				}

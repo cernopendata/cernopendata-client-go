@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/cernopendata/cernopendata-client-go/internal/filemetadata"
 )
 
 func TestVerifyLocalFiles(t *testing.T) {
@@ -41,12 +43,8 @@ func TestVerifyFiles(t *testing.T) {
 	}
 
 	verifier := NewVerifier()
-	expectedFiles := []any{
-		map[string]any{
-			"uri":      "http://example.com/test.txt",
-			"size":     float64(len(content)),
-			"checksum": "adler32:1f2904dc",
-		},
+	expectedFiles := []filemetadata.File{
+		{URI: "http://example.com/test.txt", Size: int64(len(content)), Checksum: "adler32:1f2904dc"},
 	}
 
 	stats, err := verifier.VerifyFiles(testDir, expectedFiles)
@@ -83,17 +81,9 @@ func TestVerifyFilesUsesAssignedLocalPath(t *testing.T) {
 	}
 
 	verifier := NewVerifier()
-	expectedFiles := []any{
-		map[string]any{
-			"uri":      "http://example.com/run/0002/AO2D.root",
-			"size":     float64(len(content)),
-			"checksum": "adler32:1f2904dc",
-		},
-		map[string]any{
-			"uri":      "http://example.com/run/0003/AO2D.root",
-			"size":     float64(len(content)),
-			"checksum": "adler32:1f2904dc",
-		},
+	expectedFiles := []filemetadata.File{
+		{URI: "http://example.com/run/0002/AO2D.root", Size: int64(len(content)), Checksum: "adler32:1f2904dc"},
+		{URI: "http://example.com/run/0003/AO2D.root", Size: int64(len(content)), Checksum: "adler32:1f2904dc"},
 	}
 
 	stats, err := verifier.VerifyFiles(testDir, expectedFiles)

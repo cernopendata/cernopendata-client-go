@@ -66,14 +66,7 @@ Examples:
 			os.Exit(1)
 		}
 
-		var fileList []any
-		for _, file := range files {
-			fileList = append(fileList, map[string]any{
-				"uri":      file.URI,
-				"size":     float64(file.Size),
-				"checksum": file.Checksum,
-			})
-		}
+		fileList := files
 
 		if filterName != "" {
 			nameFilters := strings.Split(filterName, ",")
