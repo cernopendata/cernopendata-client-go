@@ -1,9 +1,11 @@
 #!/bin/bash
 
-set -e
+set -euo pipefail
 
 REPO="cernopendata/cernopendata-client-go"
 BINARY_NAME="cernopendata-client"
+GITHUB_API_BASE_URL="${GITHUB_API_BASE_URL:-https://api.github.com}"
+GITHUB_RELEASE_BASE_URL="${GITHUB_RELEASE_BASE_URL:-https://github.com}"
 
 echo "Installing ${BINARY_NAME}..."
 
@@ -30,7 +32,7 @@ echo "Detected OS: ${OS}"
 echo "Detected architecture: ${ARCH}"
 
 get_latest_release() {
-    curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | \
+    curl -fsSL "${GITHUB_API_BASE_URL}/repos/${REPO}/releases/latest" | \
         grep '"tag_name":' | \
         sed -E 's/.*"([^"]+)".*/\1/'
 }
@@ -43,19 +45,19 @@ fi
 
 echo "Latest version: ${LATEST_VERSION}"
 
-BINARY_URL="https://github.com/${REPO}/releases/download/${LATEST_VERSION}/${BINARY_NAME}-${OS}-${ARCH}"
+BINARY_URL="${GITHUB_RELEASE_BASE_URL}/${REPO}/releases/download/${LATEST_VERSION}/${BINARY_NAME}-${OS}-${ARCH}"
 
 echo "Downloading from: ${BINARY_URL}"
 
 TEMP_DIR=$(mktemp -d)
-trap "rm -rf ${TEMP_DIR}" EXIT
+trap 'rm -rf -- "${TEMP_DIR}"' EXIT
 
-CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${LATEST_VERSION}/checksums.txt"
+CHECKSUMS_URL="${GITHUB_RELEASE_BASE_URL}/${REPO}/releases/download/${LATEST_VERSION}/checksums.txt"
 if ! curl -fsSL "${CHECKSUMS_URL}" -o "${TEMP_DIR}/checksums.txt"; then
-    echo "Warning: Failed to download checksums file, skipping verification"
-else
-    echo "Downloaded checksums file"
+    echo "Failed to download required checksums file"
+    exit 1
 fi
+echo "Downloaded checksums file"
 
 if ! curl -fsSL "${BINARY_URL}" -o "${TEMP_DIR}/${BINARY_NAME}"; then
     echo "Failed to download binary"
@@ -64,26 +66,48 @@ fi
 
 verify_checksum() {
     if [ ! -f "${TEMP_DIR}/checksums.txt" ]; then
-        echo "Checksums file not found, skipping verification"
-        return 0
+        echo "Required checksums file not found"
+        exit 1
     fi
 
     BINARY_FILE="${BINARY_NAME}-${OS}-${ARCH}"
 
-    EXPECTED_CHECKSUM=$(grep "${BINARY_FILE}$" "${TEMP_DIR}/checksums.txt" | awk '{print $1}')
-    if [ -z "$EXPECTED_CHECKSUM" ]; then
-        echo "Warning: Checksum not found for ${BINARY_FILE}, skipping verification"
-        return 0
+    if ! EXPECTED_CHECKSUM=$(awk -v target="${BINARY_FILE}" '
+        NF == 0 { next }
+        NF != 2 || length($1) != 64 || $1 !~ /^[[:xdigit:]]+$/ {
+            printf "Malformed checksum entry on line %d\n", NR > "/dev/stderr"
+            malformed = 1
+            next
+        }
+        $2 == target {
+            matches++
+            checksum = tolower($1)
+        }
+        END {
+            if (malformed) {
+                exit 2
+            }
+            if (matches != 1) {
+                printf "Expected exactly one checksum entry for %s, found %d\n", target, matches > "/dev/stderr"
+                exit 3
+            }
+            print checksum
+        }
+    ' "${TEMP_DIR}/checksums.txt"); then
+        echo "Checksum manifest validation failed"
+        exit 1
     fi
 
-    if command -v sha256sum &>/dev/null; then
+    if command -v sha256sum >/dev/null 2>&1; then
         ACTUAL_CHECKSUM=$(sha256sum "${TEMP_DIR}/${BINARY_NAME}" | awk '{print $1}')
-    elif command -v shasum &>/dev/null; then
+    elif command -v shasum >/dev/null 2>&1; then
         ACTUAL_CHECKSUM=$(shasum -a 256 "${TEMP_DIR}/${BINARY_NAME}" | awk '{print $1}')
     else
-        echo "sha256sum/shasum not found, skipping checksum verification"
-        return 0
+        echo "sha256sum or shasum is required for checksum verification"
+        exit 1
     fi
+
+    ACTUAL_CHECKSUM=$(printf '%s' "${ACTUAL_CHECKSUM}" | tr '[:upper:]' '[:lower:]')
 
     if [ "$EXPECTED_CHECKSUM" != "$ACTUAL_CHECKSUM" ]; then
         echo "Checksum verification failed!"
@@ -112,7 +136,7 @@ determine_install_dir() {
     fi
 }
 
-if [ -z "${INSTALL_DIR}" ]; then
+if [ -z "${INSTALL_DIR:-}" ]; then
     determine_install_dir
 fi
 
@@ -132,7 +156,7 @@ verify_installation() {
 verify_installation
 
 configure_path() {
-    SHELL_NAME=$(basename "${SHELL}")
+    SHELL_NAME=$(basename "${SHELL:-sh}")
     PATH_ENTRY="export PATH=\"${INSTALL_DIR}:\$PATH\""
 
     case ":$PATH:" in

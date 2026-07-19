@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"runtime"
 	"strings"
 	"testing"
@@ -95,15 +97,22 @@ func TestCompareVersions(t *testing.T) {
 }
 
 func TestFetchChecksums(t *testing.T) {
-	testData := "a1b2c3d4  file1.txt\ne5f6g7h8  file2.bin\n"
-	checksums, err := parseChecksums(testData)
+	firstChecksum := strings.Repeat("a", 64)
+	secondChecksum := strings.Repeat("b", 64)
+	testData := fmt.Sprintf("%s  file1.txt\n%s  file2.bin\n", firstChecksum, secondChecksum)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(testData))
+	}))
+	t.Cleanup(server.Close)
+
+	checksums, err := FetchChecksums(server.URL)
 	if err != nil {
 		t.Fatalf("Failed to parse checksums: %v", err)
 	}
 
 	expectedChecksums := map[string]string{
-		"file1.txt": "a1b2c3d4",
-		"file2.bin": "e5f6g7h8",
+		"file1.txt": firstChecksum,
+		"file2.bin": secondChecksum,
 	}
 
 	if len(checksums) != len(expectedChecksums) {
@@ -140,6 +149,24 @@ func TestVerifyChecksum(t *testing.T) {
 			expectedChecksum: "0000000000000000000000000000000000000000000000000000000000000000",
 			wantErr:          true,
 		},
+		{
+			name:             "uppercase checksum",
+			data:             data,
+			expectedChecksum: strings.ToUpper(expectedChecksum),
+			wantErr:          false,
+		},
+		{
+			name:             "short checksum",
+			data:             data,
+			expectedChecksum: "abcd",
+			wantErr:          true,
+		},
+		{
+			name:             "non-hex checksum",
+			data:             data,
+			expectedChecksum: strings.Repeat("z", 64),
+			wantErr:          true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -147,6 +174,139 @@ func TestVerifyChecksum(t *testing.T) {
 			err := VerifyChecksum(tt.data, tt.expectedChecksum)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("VerifyChecksum() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestDownloadVerifiedBinaryChecksumPolicy(t *testing.T) {
+	assetName := fmt.Sprintf("cernopendata-client-%s-%s", runtime.GOOS, runtime.GOARCH)
+	binary := []byte("verified release binary")
+	hash := sha256.Sum256(binary)
+	validChecksum := hex.EncodeToString(hash[:])
+	otherChecksum := strings.Repeat("b", 64)
+
+	tests := []struct {
+		name                 string
+		checksumStatus       int
+		checksumManifest     string
+		binaryStatus         int
+		wantErrContains      string
+		wantBinaryRequest    bool
+		wantDownloadedBinary bool
+	}{
+		{
+			name:                 "valid checksum",
+			checksumStatus:       http.StatusOK,
+			checksumManifest:     fmt.Sprintf("%s  another-asset\n%s  %s\n", otherChecksum, validChecksum, assetName),
+			binaryStatus:         http.StatusOK,
+			wantBinaryRequest:    true,
+			wantDownloadedBinary: true,
+		},
+		{
+			name:              "checksum unavailable",
+			checksumStatus:    http.StatusServiceUnavailable,
+			binaryStatus:      http.StatusOK,
+			wantErrContains:   "checksums download failed with status 503",
+			wantBinaryRequest: false,
+		},
+		{
+			name:              "empty checksum manifest",
+			checksumStatus:    http.StatusOK,
+			checksumManifest:  "\n",
+			binaryStatus:      http.StatusOK,
+			wantErrContains:   "checksums file is empty",
+			wantBinaryRequest: false,
+		},
+		{
+			name:              "malformed checksum line",
+			checksumStatus:    http.StatusOK,
+			checksumManifest:  "not-a-checksum-entry\n",
+			binaryStatus:      http.StatusOK,
+			wantErrContains:   "malformed checksum entry",
+			wantBinaryRequest: false,
+		},
+		{
+			name:              "short checksum",
+			checksumStatus:    http.StatusOK,
+			checksumManifest:  fmt.Sprintf("abcd  %s\n", assetName),
+			binaryStatus:      http.StatusOK,
+			wantErrContains:   "exactly 64 hexadecimal characters",
+			wantBinaryRequest: false,
+		},
+		{
+			name:              "non-hex checksum",
+			checksumStatus:    http.StatusOK,
+			checksumManifest:  fmt.Sprintf("%s  %s\n", strings.Repeat("z", 64), assetName),
+			binaryStatus:      http.StatusOK,
+			wantErrContains:   "only hexadecimal characters",
+			wantBinaryRequest: false,
+		},
+		{
+			name:              "absent asset entry",
+			checksumStatus:    http.StatusOK,
+			checksumManifest:  fmt.Sprintf("%s  another-asset\n", otherChecksum),
+			binaryStatus:      http.StatusOK,
+			wantErrContains:   "no checksum found",
+			wantBinaryRequest: false,
+		},
+		{
+			name:              "duplicate asset entries",
+			checksumStatus:    http.StatusOK,
+			checksumManifest:  fmt.Sprintf("%s  %s\n%s  %s\n", validChecksum, assetName, validChecksum, assetName),
+			binaryStatus:      http.StatusOK,
+			wantErrContains:   "duplicate checksum entry",
+			wantBinaryRequest: false,
+		},
+		{
+			name:              "mismatched checksum",
+			checksumStatus:    http.StatusOK,
+			checksumManifest:  fmt.Sprintf("%s  %s\n", strings.Repeat("0", 64), assetName),
+			binaryStatus:      http.StatusOK,
+			wantErrContains:   "checksum mismatch",
+			wantBinaryRequest: true,
+		},
+		{
+			name:              "binary unavailable",
+			checksumStatus:    http.StatusOK,
+			checksumManifest:  fmt.Sprintf("%s  %s\n", validChecksum, assetName),
+			binaryStatus:      http.StatusBadGateway,
+			wantErrContains:   "download failed with status 502",
+			wantBinaryRequest: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			binaryRequested := false
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/checksums.txt":
+					w.WriteHeader(tt.checksumStatus)
+					_, _ = w.Write([]byte(tt.checksumManifest))
+				case "/" + assetName:
+					binaryRequested = true
+					w.WriteHeader(tt.binaryStatus)
+					_, _ = w.Write(binary)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			t.Cleanup(server.Close)
+
+			got, err := DownloadVerifiedBinary(server.URL+"/"+assetName, server.URL+"/checksums.txt", assetName, nil)
+			if tt.wantErrContains == "" {
+				if err != nil {
+					t.Fatalf("DownloadVerifiedBinary() unexpected error: %v", err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), tt.wantErrContains) {
+				t.Fatalf("DownloadVerifiedBinary() error = %v, want error containing %q", err, tt.wantErrContains)
+			}
+			if binaryRequested != tt.wantBinaryRequest {
+				t.Errorf("binary requested = %v, want %v", binaryRequested, tt.wantBinaryRequest)
+			}
+			if tt.wantDownloadedBinary && string(got) != string(binary) {
+				t.Errorf("DownloadVerifiedBinary() = %q, want %q", got, binary)
 			}
 		})
 	}
@@ -233,6 +393,40 @@ func TestGetAssetForCurrentPlatform(t *testing.T) {
 			wantErr:     true,
 			errContains: "no binary found",
 		},
+		{
+			name: "missing checksums asset",
+			release: ReleaseInfo{
+				Assets: []ReleaseAsset{
+					{Name: fmt.Sprintf("cernopendata-client-%s-%s", runtime.GOOS, runtime.GOARCH), BrowserDownloadURL: "https://example.com/binary"},
+				},
+			},
+			wantErr:     true,
+			errContains: "checksums.txt is required",
+		},
+		{
+			name: "duplicate checksums assets",
+			release: ReleaseInfo{
+				Assets: []ReleaseAsset{
+					{Name: fmt.Sprintf("cernopendata-client-%s-%s", runtime.GOOS, runtime.GOARCH), BrowserDownloadURL: "https://example.com/binary"},
+					{Name: "checksums.txt", BrowserDownloadURL: "https://example.com/checksums-1.txt"},
+					{Name: "checksums.txt", BrowserDownloadURL: "https://example.com/checksums-2.txt"},
+				},
+			},
+			wantErr:     true,
+			errContains: "exactly one checksums.txt",
+		},
+		{
+			name: "duplicate matching binaries",
+			release: ReleaseInfo{
+				Assets: []ReleaseAsset{
+					{Name: fmt.Sprintf("cernopendata-client-%s-%s", runtime.GOOS, runtime.GOARCH), BrowserDownloadURL: "https://example.com/binary-1"},
+					{Name: fmt.Sprintf("cernopendata-client-%s-%s", runtime.GOOS, runtime.GOARCH), BrowserDownloadURL: "https://example.com/binary-2"},
+					{Name: "checksums.txt", BrowserDownloadURL: "https://example.com/checksums.txt"},
+				},
+			},
+			wantErr:     true,
+			errContains: "exactly one binary",
+		},
 	}
 
 	for _, tt := range tests {
@@ -255,21 +449,6 @@ func TestGetAssetForCurrentPlatform(t *testing.T) {
 			}
 		})
 	}
-}
-
-func parseChecksums(data string) (map[string]string, error) {
-	checksums := make(map[string]string)
-	for line := range strings.SplitSeq(data, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		parts := strings.Fields(line)
-		if len(parts) >= 2 {
-			checksums[parts[1]] = parts[0]
-		}
-	}
-	return checksums, nil
 }
 
 func isHomebrewPath(path string) bool {
