@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0](https://github.com/cernopendata/cernopendata-client-go/compare/v0.9.1...v1.0.0) (2026-07-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* use github.com/cernopendata/cernopendata-client-go for Go installs and imports.
+
+### Code Refactoring
+
+* migrate module path to cernopendata ([7d2505b](https://github.com/cernopendata/cernopendata-client-go/commit/7d2505bd593095d1008e6444fd3d1122ac34429f))
+
 ## [0.9.1](https://github.com/cernopendata/cernopendata-client-go/compare/v0.9.0...v0.9.1) (2026-04-14)
 
 
