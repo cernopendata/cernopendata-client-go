@@ -3,8 +3,8 @@ package main
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/clelange/cernopendata-client-go/internal/printer"
-	"github.com/clelange/cernopendata-client-go/internal/version"
+	"github.com/cernopendata/cernopendata-client-go/internal/printer"
+	"github.com/cernopendata/cernopendata-client-go/internal/version"
 )
 
 var versionCmd = &cobra.Command{

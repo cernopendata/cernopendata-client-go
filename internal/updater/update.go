@@ -1,7 +1,7 @@
 package updater
 
 const (
-	GitHubRepo   = "clelange/cernopendata-client-go"
+	GitHubRepo   = "cernopendata/cernopendata-client-go"
 	GitHubAPIURL = "https://api.github.com"
 )
 

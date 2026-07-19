@@ -2,7 +2,7 @@
 
 set -e
 
-REPO="clelange/cernopendata-client-go"
+REPO="cernopendata/cernopendata-client-go"
 BINARY_NAME="cernopendata-client"
 
 echo "Installing ${BINARY_NAME}..."

@@ -116,7 +116,7 @@ brew install cernopendata-client
 The fastest way to install on Linux or macOS:
 
 ```bash
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/clelange/cernopendata-client-go/main/scripts/install.sh)"
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/cernopendata/cernopendata-client-go/main/scripts/install.sh)"
 ```
 
 This script will:
@@ -133,7 +133,7 @@ For Linux, macOS, or Windows:
 
 ```bash
 # Clone the repository
-git clone https://github.com/clelange/cernopendata-client-go.git
+git clone https://github.com/cernopendata/cernopendata-client-go.git
 cd cernopendata-client-go
 
 # Build the binary
@@ -142,6 +142,12 @@ go build -o cernopendata-client ./cmd/cernopendata-client
 # Optional: Install to system path
 mv cernopendata-client /usr/local/bin/
 ```
+
+> [!IMPORTANT]
+> Starting with v0.10.0, the Go module path is
+> `github.com/cernopendata/cernopendata-client-go`. Commands such as `go install`
+> must use the canonical CERN path; the former `github.com/clelange/...` path is
+> retained only by historical pre-v0.10.0 releases.
 
 ### Shell Completion
 

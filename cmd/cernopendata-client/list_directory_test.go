@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clelange/cernopendata-client-go/internal/lister"
+	"github.com/cernopendata/cernopendata-client-go/internal/lister"
 )
 
 func TestPrintEntries(t *testing.T) {

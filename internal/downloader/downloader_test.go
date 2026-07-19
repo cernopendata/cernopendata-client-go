@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/clelange/cernopendata-client-go/internal/utils"
+	"github.com/cernopendata/cernopendata-client-go/internal/utils"
 )
 
 func TestNewDownloader(t *testing.T) {

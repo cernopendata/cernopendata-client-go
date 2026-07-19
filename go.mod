@@ -1,4 +1,4 @@
-module github.com/clelange/cernopendata-client-go
+module github.com/cernopendata/cernopendata-client-go
 
 go 1.26
 

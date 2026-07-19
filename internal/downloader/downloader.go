@@ -9,9 +9,9 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/clelange/cernopendata-client-go/internal/config"
-	"github.com/clelange/cernopendata-client-go/internal/printer"
-	"github.com/clelange/cernopendata-client-go/internal/progress"
+	"github.com/cernopendata/cernopendata-client-go/internal/config"
+	"github.com/cernopendata/cernopendata-client-go/internal/printer"
+	"github.com/cernopendata/cernopendata-client-go/internal/progress"
 )
 
 type DownloadStats struct {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clelange/cernopendata-client-go/internal/utils"
+	"github.com/cernopendata/cernopendata-client-go/internal/utils"
 )
 
 // Writer wraps an io.Writer to track and display download progress.
