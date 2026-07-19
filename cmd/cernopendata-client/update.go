@@ -12,28 +12,27 @@ import (
 	"github.com/cernopendata/cernopendata-client-go/internal/version"
 )
 
-var checkOnly bool
-
-var updateCmd = &cobra.Command{
-	Use:   "update",
-	Short: "Check for and install updates",
-	Long: `Check for available updates and optionally install them.
+func newUpdateCommand() *cobra.Command {
+	var checkOnly bool
+	cmd := &cobra.Command{
+		Use:   "update",
+		Short: "Check for and install updates",
+		Long: `Check for available updates and optionally install them.
 
 By default, this command will download and install the latest version.
 Use --check to only check for updates without installing.
 
 If the binary was installed via Homebrew, the command will suggest using
 'brew upgrade' instead of performing a self-update.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return runUpdate()
-	},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runUpdate(checkOnly)
+		},
+	}
+	cmd.Flags().BoolVar(&checkOnly, "check", false, "Only check for updates, don't install")
+	return cmd
 }
 
-func init() {
-	updateCmd.Flags().BoolVar(&checkOnly, "check", false, "Only check for updates, don't install")
-}
-
-func runUpdate() error {
+func runUpdate(checkOnly bool) error {
 	currentVersion := version.Version
 
 	printer.DisplayMessage(printer.Info, fmt.Sprintf("Current version: %s", currentVersion))

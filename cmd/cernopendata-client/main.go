@@ -19,52 +19,73 @@ func init() {
 }
 
 func main() {
-	var rootCmd = &cobra.Command{
-		Use:   "cernopendata-client",
-		Short: "CLI for CERN Open Data portal",
+	if exitCode := execute(newRootCommand()); exitCode != 0 {
+		os.Exit(exitCode)
+	}
+}
+
+func execute(rootCmd *cobra.Command) int {
+	if err := rootCmd.Execute(); err != nil {
+		printer.DisplayMessage(printer.Error, fmt.Sprintf("Error: %v", err))
+		return 1
+	}
+	return 0
+}
+
+func commandErrorf(format string, args ...any) error {
+	return fmt.Errorf(format, args...)
+}
+
+func newRootCommand() *cobra.Command {
+	rootCmd := &cobra.Command{
+		Use:           "cernopendata-client",
+		Short:         "CLI for CERN Open Data portal",
+		SilenceErrors: true,
+		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
-				_ = cmd.Help()
-				return nil
+				return cmd.Help()
 			}
 			return fmt.Errorf("unknown command: %s", args[0])
 		},
 	}
 
-	var completionCmd = &cobra.Command{
+	rootCmd.AddCommand(newVersionCommand())
+	rootCmd.AddCommand(newUpdateCommand())
+	rootCmd.AddCommand(newGetMetadataCommand())
+	rootCmd.AddCommand(newGetFileLocationsCommand())
+	rootCmd.AddCommand(newDownloadFilesCommand())
+	rootCmd.AddCommand(newVerifyFilesCommand())
+	rootCmd.AddCommand(newListDirectoryCommand())
+	rootCmd.AddCommand(newSearchCommand())
+	rootCmd.AddCommand(newCompletionCommand(rootCmd))
+
+	return rootCmd
+}
+
+func newCompletionCommand(rootCmd *cobra.Command) *cobra.Command {
+	return &cobra.Command{
 		Use:   "completion",
 		Short: "Generate shell completion script",
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
-				printer.DisplayMessage(printer.Error, "Please specify bash or zsh")
-				os.Exit(1)
+				return commandErrorf("Please specify bash or zsh")
 			}
 
 			shell := args[0]
 			switch shell {
 			case "bash":
-				_ = rootCmd.GenBashCompletion(os.Stdout)
+				if err := rootCmd.GenBashCompletion(cmd.OutOrStdout()); err != nil {
+					return commandErrorf("Failed to generate bash completion: %w", err)
+				}
 			case "zsh":
-				_ = rootCmd.GenZshCompletion(os.Stdout)
+				if err := rootCmd.GenZshCompletion(cmd.OutOrStdout()); err != nil {
+					return commandErrorf("Failed to generate zsh completion: %w", err)
+				}
 			default:
-				printer.DisplayMessage(printer.Error, fmt.Sprintf("Unsupported shell: %s (supported: bash, zsh)", shell))
-				os.Exit(1)
+				return commandErrorf("Unsupported shell: %s (supported: bash, zsh)", shell)
 			}
+			return nil
 		},
-	}
-
-	rootCmd.AddCommand(versionCmd)
-	rootCmd.AddCommand(updateCmd)
-	rootCmd.AddCommand(getMetadataCmd)
-	rootCmd.AddCommand(getFileLocationsCmd)
-	rootCmd.AddCommand(downloadFilesCmd)
-	rootCmd.AddCommand(verifyFilesCmd)
-	rootCmd.AddCommand(listDirectoryCmd)
-	rootCmd.AddCommand(searchCmd)
-	rootCmd.AddCommand(completionCmd)
-
-	if err := rootCmd.Execute(); err != nil {
-		printer.DisplayMessage(printer.Error, fmt.Sprintf("Error: %v", err))
-		os.Exit(1)
 	}
 }
