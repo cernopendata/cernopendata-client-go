@@ -42,7 +42,7 @@ build-linux-arm64:
 
 # Docker targets (without WebAuthn by default for smaller image)
 docker-build:
-	docker build -t $(IMAGE_NAME):$(VERSION) -t $(IMAGE_NAME):latest .
+	docker build --build-arg "VERSION=$(VERSION)" -t $(IMAGE_NAME):$(VERSION) -t $(IMAGE_NAME):latest .
 
 docker-push:
 	docker push $(IMAGE_NAME):$(VERSION)
