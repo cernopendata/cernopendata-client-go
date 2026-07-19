@@ -1,6 +1,8 @@
 # Build stage
 FROM golang:1.26-alpine AS builder
 
+ARG VERSION=dev
+
 WORKDIR /app
 
 # Copy go mod files first for better caching
@@ -10,8 +12,10 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-X main.buildVersion=$(git describe --tags --always --dirty 2>/dev/null || echo 'dev')" -o cernopendata-client ./cmd/cernopendata-client
+# Build with the version supplied by the release or container workflow. The
+# build context intentionally excludes .git, so version discovery cannot happen
+# reliably inside the image build.
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-X main.buildVersion=${VERSION}" -o cernopendata-client ./cmd/cernopendata-client
 
 # Runtime stage
 FROM alpine:latest
