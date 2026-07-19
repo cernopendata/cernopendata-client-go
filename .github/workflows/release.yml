@@ -3,9 +3,52 @@ name: Release
 on:
   release:
     types: [created]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to rebuild
+        required: true
+        type: string
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            tag="$INPUT_TAG"
+          else
+            tag="$EVENT_TAG"
+          fi
+          git check-ref-format "refs/tags/$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Check out release tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+          fetch-depth: 0
+
+      - name: Verify existing tag
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"
+          test "$(git rev-parse HEAD)" = "$(git rev-list -n 1 "$RELEASE_TAG")"
+
   release:
+    needs: prepare
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -22,6 +65,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
 
       - name: Set up Go
         uses: actions/setup-go@v7
@@ -30,34 +75,56 @@ jobs:
           cache: true
 
       - name: Build binary
-        run: make build-${{ matrix.target }} VERSION=${{ github.event.release.tag_name }}
+        env:
+          VERSION: ${{ needs.prepare.outputs.tag }}
+        run: make build-${{ matrix.target }} "VERSION=$VERSION"
 
       - name: Upload binary to release
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
           files: dist/cernopendata-client-${{ matrix.target }}
+          fail_on_unmatched_files: true
 
   checksums:
-    needs: release
+    needs: [prepare, release]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
 
       - name: Download release assets
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: |
-          gh release download ${{ github.event.release.tag_name }} --dir dist --pattern "*"
+          gh release download "$RELEASE_TAG" \
+            --dir dist \
+            --pattern "cernopendata-client-*"
 
       - name: Generate checksums
         run: |
           cd dist
-          sha256sum * | sort -k2 > checksums.txt
+          binaries=(
+            cernopendata-client-darwin-amd64
+            cernopendata-client-darwin-arm64
+            cernopendata-client-linux-amd64
+            cernopendata-client-linux-arm64
+          )
+          for binary in "${binaries[@]}"; do
+            test -f "$binary"
+          done
+          binary_count="$(find . -maxdepth 1 -type f -name 'cernopendata-client-*' | wc -l | tr -d ' ')"
+          test "$binary_count" -eq "${#binaries[@]}"
+          sha256sum "${binaries[@]}" | sort -k2 > checksums.txt
           cat checksums.txt
 
       - name: Upload checksums to release
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
           files: dist/checksums.txt
+          fail_on_unmatched_files: true
