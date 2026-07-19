@@ -75,30 +75,17 @@ func runUpdate() error {
 	assetName := urlParts[len(urlParts)-1]
 
 	printer.DisplayMessage(printer.Info, fmt.Sprintf("Downloading %s...", assetName))
+	printer.DisplayMessage(printer.Info, "Verifying checksum...")
 
-	binary, err := updater.DownloadBinary(binaryURL, func(downloaded, total int64) {
+	binary, err := updater.DownloadVerifiedBinary(binaryURL, checksumURL, assetName, func(downloaded, total int64) {
 		percent := float64(downloaded) / float64(total) * 100
 		fmt.Fprintf(os.Stderr, "\rDownloading... %.1f%%", percent)
 	})
 	if err != nil {
-		return fmt.Errorf("failed to download update: %w", err)
+		return fmt.Errorf("failed to download and verify update: %w", err)
 	}
 	fmt.Fprintln(os.Stderr)
-
-	if checksumURL != "" {
-		printer.DisplayMessage(printer.Info, "Verifying checksum...")
-		checksums, err := updater.FetchChecksums(checksumURL)
-		if err != nil {
-			printer.DisplayMessage(printer.Note, fmt.Sprintf("Warning: Could not fetch checksums: %v", err))
-		} else if expectedChecksum, ok := checksums[assetName]; ok {
-			if err := updater.VerifyChecksum(binary, expectedChecksum); err != nil {
-				return fmt.Errorf("checksum verification failed: %w", err)
-			}
-			printer.DisplayMessage(printer.Info, "Checksum verified.")
-		} else {
-			printer.DisplayMessage(printer.Note, fmt.Sprintf("Warning: No checksum found for %s", assetName))
-		}
-	}
+	printer.DisplayMessage(printer.Info, "Checksum verified.")
 
 	printer.DisplayMessage(printer.Info, "Installing update...")
 	if err := updater.ReplaceBinary(binary); err != nil {
